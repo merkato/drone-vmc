@@ -1,0 +1,50 @@
+services:
+  # REVERSE PROXY - Automatyczny SSL i Routing
+  proxy:
+    image: caddy:latest
+    container_name: caddy_proxy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./config/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: always
+
+  # SILNIK WIDEO - RTMP, RTSP, WebRTC, DVR
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: mediamtx
+    ports:
+      - "1935:1935"      # RTMP dla dronów
+      - "8554:8554"      # RTSP dla kamer IP
+      - "8000:8000/udp"  # WebRTC UDP Mux
+    volumes:
+      - ./config/mediamtx.yml:/mediamtx.yml:ro
+      - recordings_data:/recordings
+    restart: always
+
+  # APLIKACJA ZARZĄDZAJĄCA
+  drone_app:
+    build: ./app
+    container_name: drone_app
+    environment:
+      - DOMAIN=${DOMAIN}
+      - STORAGE_SECRET=${STORAGE_SECRET}
+    volumes:
+      - ./streaming_v3.db:/app/streaming_v3.db
+      - ./credentials.json:/app/credentials.json # Klucz do Google Drive
+      - recordings_data:/recordings
+    restart: always
+
+volumes:
+  recordings_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/recordings
+  caddy_data:
+  caddy_config:

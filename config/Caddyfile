@@ -1,0 +1,15 @@
+# Panel Zarządzania
+dashboard.giswgorach.pl {
+    reverse_proxy drone_app:8080
+}
+
+# WebRTC i API MediaMTX
+stream.giswgorach.pl {
+    # Przekierowanie ruchu WebRTC
+    reverse_proxy mediamtx:8889
+}
+
+# Opcjonalnie: API MediaMTX
+api.giswgorach.pl {
+    reverse_proxy mediamtx:9997
+}
