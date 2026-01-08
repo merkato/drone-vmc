@@ -57,8 +57,8 @@ class StreamPath(Base):
 class SystemConfig(Base):
     __tablename__ = "system_config"
     id = Column(Integer, primary_key=True)
-    institution_name = Column(String, default="INSTYTUT MONITORINGU")
-    unit_name = Column(String, default="JEDNOSTKA OPERACYJNA")
+    institution_name = Column(String, default="Ochotnicza Straż Pożarna Istebna-Centrum")
+    unit_name = Column(String, default="Zespół BSP")
     retention_policy = Column(String, default="DELETE") # "DELETE" lub "BACKUP"
     gdrive_folder_id = Column(String, nullable=True)
 
