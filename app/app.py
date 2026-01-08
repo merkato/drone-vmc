@@ -32,12 +32,18 @@ Base = declarative_base()
 engine = create_engine(DB_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
 
+# Tabela asocjacyjna (zapewne już ją masz, upewnij się, że obsługuje obie relacje)
+stream_permissions = Table(
+    'stream_permissions', Base.metadata,
+    Column('user_id', Integer, ForeignKey('users.id'), primary_key=True),
+    Column('stream_path', String, ForeignKey('streams.path_name'), primary_key=True)
+)
 
-
-# Tabela asocjacyjna Uprawnień (Many-to-Many)
-stream_permissions = Table('stream_permissions', Base.metadata,
-    Column('user_id', String, ForeignKey('users.username', ondelete="CASCADE")),
-    Column('stream_id', String, ForeignKey('streams.path_name', ondelete="CASCADE"))
+# Nowa tabela dla Widzów (kto ma prawo tylko oglądać)
+stream_viewers = Table(
+    'stream_viewers', Base.metadata,
+    Column('user_id', Integer, ForeignKey('users.id'), primary_key=True),
+    Column('stream_path', String, ForeignKey('streams.path_name'), primary_key=True)
 )
 
 class User(Base):
@@ -46,13 +52,19 @@ class User(Base):
     password = Column(String)
     role = Column(String) # 'admin', 'publisher', 'widz'
     allowed_streams = relationship("StreamPath", secondary=stream_permissions, back_populates="authorized_publishers")
+    visible_streams = relationship("StreamPath", secondary=stream_viewers, back_populates="authorized_viewers")
 
 class StreamPath(Base):
     __tablename__ = "streams"
-    path_name = Column(String, primary_key=True)
+    path_name = Column(String, primary_key=True) # np. 'koniakow-1'
     description = Column(String)
     is_recording = Column(Boolean, default=False)
+    # Kto stworzył ten stream (Właściciel)
+    owner_username = Column(String) 
+    # RELACJA 1: Kto może wysyłać obraz (RTMP Publish)
     authorized_publishers = relationship("User", secondary=stream_permissions, back_populates="allowed_streams")
+    # RELACJA 2: Kto może widzieć obraz w Gridzie (Viewers)
+    authorized_viewers = relationship("User", secondary=stream_viewers, back_populates="visible_streams")
 
 class SystemConfig(Base):
     __tablename__ = "system_config"
@@ -406,6 +418,25 @@ def main_page():
                             user_table.rows = get_user_data()
 
                     user_table.on('delete_req', lambda e: handle_delete_user(e.args))
+                    # Przykładowy fragment UI w Zarządzaniu:
+                    with ui.card().classes('bg-zinc-900 text-white border border-zinc-800 p-6'):
+                        ui.label('KONFIGURACJA UPRAWNIEŃ DRONA').classes('text-orange-500 font-bold')
+    
+                     # Pobieramy wszystkich użytkowników z bazy
+                        with SessionLocal() as db:
+                            all_users = {u.id: u.username for u in db.query(User).all()}
+
+                        p_select = ui.select(all_users, multiple=True, label='PILOCI (NADAWANIE)').classes('w-full').props('dark filled')
+                           v_select = ui.select(all_users, multiple=True, label='WIDZOWIE (PODGLĄD)').classes('w-full').props('dark filled')
+
+                        async def save_permissions(path_name):
+                            with SessionLocal() as db:
+                                stream = db.query(StreamPath).filter(StreamPath.path_name == path_name).first()
+                                # Czyścimy stare i dodajemy nowe relacje na podstawie wybranych ID
+                                stream.authorized_publishers = db.query(User).filter(User.id.in_(p_select.value)).all()
+                                stream.authorized_viewers = db.query(User).filter(User.id.in_(v_select.value)).all()
+                                db.commit()
+                                ui.notify('Uprawnienia zaktualizowane!')
 
 def create_default_user():
     db = SessionLocal()
