@@ -296,11 +296,10 @@ def create_default_user():
         print("STWORZONO DOMYŚLNEGO ADMINA: admin / 123")
     db.close()
 
-# Wywołaj to przed ui.run()
-create_default_user()
-
 # START SYSTEMU
 if __name__ in {"__main__", "__mp_main__"}:
+# Wywołaj to przed ui.run()
+    create_default_user()
     ui.run(
         host='0.0.0.0', 
         port=8080, 
