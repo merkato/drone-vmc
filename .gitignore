@@ -1,0 +1,16 @@
+# Baza danych (Prywatne dane użytkowników)
+*.db
+*.db-journal
+
+# Sekrety i klucze (NIGDY nie wrzucaj na GitHub)
+credentials.json
+.env
+
+# Nagrania wideo (Zajmują za dużo miejsca)
+recordings/
+
+# Python i System
+__pycache__/
+*.pyc
+.venv/
+.DS_Store

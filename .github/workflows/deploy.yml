@@ -1,0 +1,48 @@
+name: Deploy drone-vms
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          pip install pytest httpx nicegui sqlalchemy psutil
+      - name: Run Pytest
+        run: pytest
+
+  deploy:
+    name: Deploy to VPS
+    needs: test  # Nie buduj, jeśli testy zawiodą!
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            cd ~/srodowisko/drone-vmc
+            git pull origin main
+            
+            # Tworzenie brakujących folderów na wszelki wypadek
+            mkdir -p app/static recordings
+            touch app/static/logo.png
+            touch app/credentials.json
+            
+            # Przebudowa i restart kontenerów
+            docker compose up -d --build
+            
+            # Sprzątanie starych obrazów (oszczędność miejsca na VPS)
+            docker image prune -f

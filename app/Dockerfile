@@ -11,5 +11,5 @@ RUN pip install --no-cache-dir \
     google-api-python-client \
     google-auth-httplib2 \
     google-auth-oauthlib
-COPY app.py .
+COPY . .
 CMD ["python", "app.py"]
