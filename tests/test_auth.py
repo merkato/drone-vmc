@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from app import app, Base, User, StreamPath, SessionLocal
+from app.app import app, Base, User, StreamPath, SessionLocal
 
 # --- KONFIGURACJA TESTOWEJ BAZY ---
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
