@@ -349,55 +349,156 @@ async def save_stream_backend(path_name, description, publisher_ids, viewer_ids)
         return None
 
 def streams_management_interface(username, role):
+    """
+    Kompletny interfejs zarządzania strumieniami:
+    - Dodawanie/Edycja dronów
+    - Zarządzanie uprawnieniami (Piloci/Widzowie)
+    - Generowanie poświadczeń RTMP
+    - Tabela z weryfikacją uprawnień do usuwania
+    """
+    
+    # --- FUNKCJE POMOCNICZE (WEWNĘTRZNE) ---
     def get_current_users():
+        """Pobiera aktualną listę użytkowników do menu wyboru."""
         with SessionLocal() as db:
             return {u.id: u.username for u in db.query(User).all()}
 
-    with ui.column().classes('w-full max-w-6xl mx-auto p-4 gap-6'):
+    def get_streams():
+        """Pobiera strumienie, które dany użytkownik może widzieć/zarządzać."""
+        with SessionLocal() as db:
+            if role == 'admin':
+                streams = db.query(StreamPath).all()
+            else:
+                user = db.query(User).filter(User.username == username).first()
+                owned = db.query(StreamPath).filter(StreamPath.owner_username == username).all()
+                published = user.allowed_streams if user else []
+                # Połączenie list i usunięcie duplikatów
+                streams = list({s.path_name: s for s in (owned + published)}.values())
+            
+            return [{'path': s.path_name, 'desc': s.description, 'owner': s.owner_username} for s in streams]
+
+    with ui.column().classes('w-full max-w-6xl mx-auto p-4 gap-6 bg-black'):
+        
+        # --- PANEL 1: FORMULARZ KONFIGURACJI ---
         with ui.card().classes('bg-zinc-900 border border-zinc-800 p-8 text-white w-full shadow-2xl relative'):
+            # Przycisk odświeżania użytkowników
+            ui.button(icon='refresh', on_click=lambda: refresh_user_lists()) \
+                .props('flat round size=sm color=zinc-500') \
+                .classes('absolute right-4 top-4') \
+                .tooltip('Odśwież listę osób')
+
             ui.label('KONFIGURACJA STRUMIENIA').classes('text-xl font-black text-orange-500 mb-6')
 
             with ui.row().classes('w-full gap-4 mb-4'):
-                s_path = ui.input('ID Strumienia (np. istebna/mini1)').classes('flex-1').props('dark filled')
+                s_path = ui.input('ID Strumienia (np. istebna/mini1)', placeholder='np. dron-1').classes('flex-1').props('dark filled')
                 s_desc = ui.input('Opis / Lokalizacja').classes('flex-1').props('dark filled')
 
+            # Wybór osób
             u_opts = get_current_users()
             with ui.row().classes('w-full gap-4 mb-4'):
                 p_sel = ui.select(u_opts, multiple=True, label='PILOCI (NADAWANIE)').classes('flex-1').props('dark filled')
                 v_sel = ui.select(u_opts, multiple=True, label='WIDZOWIE (PODGLĄD)').classes('flex-1').props('dark filled')
 
-            rtmp_box = ui.column().classes('w-full mt-6 p-4 bg-black rounded hidden border border-zinc-800 shadow-inner')
+            # PANEL LINKÓW RTMP (Ukryty domyślnie)
+            rtmp_box = ui.column().classes('w-full mt-6 p-4 bg-black rounded border border-zinc-800 shadow-inner')
+            rtmp_box.set_visibility(False)
+
+            # --- LOGIKA WYŚWIETLANIA LINKÓW ---
+            def show_links_in_box(links):
+                rtmp_box.clear()
+                rtmp_box.set_visibility(True)
+                with rtmp_box:
+                    ui.label('AKTYWNE LINKI RTMP DLA PILOTÓW:').classes('text-orange-500 font-bold mb-2 text-[10px]')
+                    for item in links:
+                        with ui.row().classes('w-full bg-zinc-900 p-2 rounded mb-1 items-center border border-zinc-800'):
+                            ui.label(item['user']).classes('text-xs font-bold w-24 text-zinc-300')
+                            ui.label(item['link']).classes('text-[10px] text-zinc-500 truncate flex-1 px-4 font-mono')
+                            ui.button(icon='content_copy', on_click=lambda l=item['link']: ui.run_javascript(f'navigator.clipboard.writeText("{l}")')) \
+                                .props('flat round size=sm color=orange-4')
+                    ui.button('ZAMKNIJ PANEL', on_click=lambda: rtmp_box.set_visibility(False)).props('flat dense color=zinc-600').classes('self-end mt-2 text-[10px]')
 
             async def handle_save():
-                ui.notify('Rozpoczynam zapisywanie...', color='info')
-                
                 if not s_path.value:
                     ui.notify('BŁĄD: Podaj ID strumienia!', color='negative')
                     return
                 
-                # Wywołanie backendu
                 links = await save_stream_backend(s_path.value, s_desc.value, p_sel.value, v_sel.value)
-                
                 if links:
-                    rtmp_box.clear()
-                    # POPRAWKA: remove_class zamiast remove_classes
-                    rtmp_box.set_visibility(True) # Alternatywnie: rtmp_box.remove_class('hidden')
-                    
-                    with rtmp_box:
-                        ui.label('LINKI RTMP DLA PILOTÓW:').classes('text-orange-500 font-bold mb-2 text-[10px]')
-                        for item in links:
-                            with ui.row().classes('w-full bg-zinc-900 p-2 rounded mb-1 items-center border border-zinc-800'):
-                                ui.label(item['user']).classes('text-xs font-bold w-20')
-                                ui.label(item['link']).classes('text-[10px] text-zinc-500 truncate flex-1 px-4 font-mono')
-                                ui.button(icon='content_copy', on_click=lambda l=item['link']: ui.run_javascript(f'navigator.clipboard.writeText("{l}")')) \
-                                    .props('flat round size=sm color=orange')
-                    
+                    show_links_in_box(links)
                     ui.notify(f'Zapisano: {s_path.value}', color='positive')
+                    stream_table.rows = get_streams()
                 else:
-                    ui.notify('Błąd zapisu do bazy danych', color='negative')
+                    ui.notify('Wystąpił błąd zapisu!', color='negative')
 
-            ui.button('ZAPISZ I GENERUJ LINKI RTMP', on_click=handle_save)\
-                .classes('w-full mt-6 bg-orange-700 hover:bg-orange-600 font-bold py-4 text-lg transition-all shadow-lg')
+            def refresh_user_lists():
+                new_opts = get_current_users()
+                p_sel.options = new_opts
+                v_sel.options = new_opts
+                ui.notify('Zaktualizowano listę osób', color='info')
+
+            ui.button('ZAPISZ I GENERUJ LINKI RTMP', on_click=handle_save) \
+                .classes('w-full mt-6 bg-orange-700 hover:bg-orange-600 font-bold py-4 text-lg shadow-lg')
+
+        # --- PANEL 2: TABELA STRUMIENI ---
+        ui.label('TWOJE STRUMIENIE OPERACYJNE').classes('text-sm font-bold text-zinc-500 mt-6 tracking-widest uppercase')
+        
+        columns = [
+            {'name': 'path', 'label': 'ID (PATH)', 'field': 'path', 'align': 'left', 'sortable': True},
+            {'name': 'desc', 'label': 'OPIS', 'field': 'desc', 'align': 'left'},
+            {'name': 'owner', 'label': 'WŁAŚCICIEL', 'field': 'owner', 'align': 'left'},
+            {'name': 'actions', 'label': 'AKCJE', 'field': 'actions', 'align': 'right'},
+        ]
+
+        stream_table = ui.table(columns=columns, rows=get_streams(), row_key='path') \
+            .classes('w-full bg-zinc-950 border border-zinc-900 shadow-2xl').props('dark flat border')
+
+        stream_table.add_slot('body-cell-actions', '''
+            <q-td :props="props">
+                <q-btn flat round icon="vpn_key" color="orange" size="sm" @click="$parent.$emit('show_rtmp', props.row.path)">
+                    <q-tooltip class="bg-orange-9">Pokaż poświadczenia RTMP</q-tooltip>
+                </q-btn>
+                <q-btn flat round icon="delete" color="red-8" size="sm" @click="$parent.$emit('delete_st', props.row.path)">
+                    <q-tooltip class="bg-red-9">Usuń strumień</q-tooltip>
+                </q-btn>
+            </q-td>
+        ''')
+
+        # --- HANDLERY TABELI ---
+        async def fetch_and_show_links(p_name):
+            with SessionLocal() as db:
+                s = db.query(StreamPath).filter(StreamPath.path_name == p_name).first()
+                if s:
+                    links = []
+                    for pub in s.authorized_publishers:
+                        l = f"rtmp://stream.giswgorach.pl/{s.path_name}?user={pub.username}&password={pub.password}"
+                        links.append({'user': pub.username, 'link': l})
+                    
+                    if not links:
+                        ui.notify('Brak przypisanych pilotów!', color='warning')
+                        return
+                        
+                    show_links_in_box(links)
+                    ui.run_javascript('window.scrollTo({top: 0, behavior: "smooth"})')
+
+        async def delete_stream_logic(p_name):
+            with SessionLocal() as db:
+                s = db.query(StreamPath).filter(StreamPath.path_name == p_name).first()
+                if not s: return
+                
+                u = db.query(User).filter(User.username == username).first()
+                
+                # Uprawnienia: Admin, Właściciel lub Pilot
+                if role == 'admin' or s.owner_username == username or u in s.authorized_publishers:
+                    db.delete(s)
+                    db.commit()
+                    ui.notify(f'Strumień {p_name} usunięty', color='positive', icon='delete')
+                    stream_table.rows = get_streams()
+                    rtmp_box.set_visibility(False)
+                else:
+                    ui.notify('Brak uprawnień do usunięcia!', color='negative')
+
+        stream_table.on('show_rtmp', lambda e: fetch_and_show_links(e.args))
+        stream_table.on('delete_st', lambda e: delete_stream_logic(e.args))
 
 def users_management_interface():
     current_user = app.storage.user.get('username')
