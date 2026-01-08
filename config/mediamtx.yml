@@ -17,4 +17,4 @@ apiAddress: :9997
 webrtc: yes
 webrtcAddress: :8889
 webrtcICEUDP: yes
-webrtcServerHostname: stream.twojadomena.pl
+webrtcServerHostname: stream.giswgorach.pl
