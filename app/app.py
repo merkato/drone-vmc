@@ -316,28 +316,28 @@ async def dashboard():
             ui.button(icon='logout', on_click=lambda: (app.storage.user.clear(), ui.navigate.to('/login'))).props('flat color=white')
 
     with ui.tabs().classes('w-full bg-zinc-900 text-zinc-400') as tabs:
-    t_grid = ui.tab('GRID OPERACYJNY', icon='grid_view')
-    t_archive = ui.tab('ARCHIWUM', icon='history')
-    if user_role == 'admin':
-        t_admin = ui.tab('ZARZĄDZANIE', icon='settings')
+        t_grid = ui.tab('GRID OPERACYJNY', icon='grid_view')
+        t_archive = ui.tab('ARCHIWUM', icon='history')
+        if user_role == 'admin':
+            t_admin = ui.tab('ZARZĄDZANIE', icon='settings')
 
 # Panele zakładek (tu dzieje się magia)
-with ui.tab_panels(tabs, value=t_grid).classes('w-full bg-black text-zinc-300'):
+    with ui.tab_panels(tabs, value=t_grid).classes('w-full bg-black text-zinc-300'):
     
     # --- PANEL 1: GRID ---
-    with ui.tab_panel(t_grid):
-        ui.label('Widok operacyjny drona').classes('text-xl font-bold')
-        # Tu później wstawimy Twój Live Grid
+        with ui.tab_panel(t_grid):
+            ui.label('Widok operacyjny drona').classes('text-xl font-bold')
+            # Tu później wstawimy Twój Live Grid
 
     # --- PANEL 2: ARCHIWUM ---
-    with ui.tab_panel(t_archive):
-        ui.label('NAGRANIA MP4 (30 DNI)').classes('text-zinc-500 text-xs mb-4 tracking-widest')
-        # Tutaj logika skanowania folderu i ui.video (jak omawialiśmy wcześniej)
-        ui.label('Moduł archiwum gotowy do przeglądania plików.').classes('italic text-zinc-600')
+        with ui.tab_panel(t_archive):
+            ui.label('NAGRANIA MP4 (30 DNI)').classes('text-zinc-500 text-xs mb-4 tracking-widest')
+            # Tutaj logika skanowania folderu i ui.video (jak omawialiśmy wcześniej)
+            ui.label('Moduł archiwum gotowy do przeglądania plików.').classes('italic text-zinc-600')
 
-   if user_role == 'admin':
-        with ui.tab_panel(t_admin):
-            with ui.column().classes('w-full max-w-6xl mx-auto p-4 gap-8'):
+        if user_role == 'admin':
+            with ui.tab_panel(t_admin):
+                with ui.column().classes('w-full max-w-6xl mx-auto p-4 gap-8'):
                 
                 # --- NAGŁÓWEK SEKCJI ---
                 with ui.row().classes('w-full items-center justify-between border-b border-zinc-800 pb-4'):
