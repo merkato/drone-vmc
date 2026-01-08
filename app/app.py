@@ -163,22 +163,41 @@ async def auth_middleware(request: Request, call_next):
 
 @ui.page('/login')
 def login_page():
+    # To ustawia czarne tło dla całej strony
     ui.query('body').style('background: #000;')
+    
     with ui.card().classes('absolute-center bg-zinc-900 border border-zinc-800 p-8 text-white w-96'):
-        ui.label('ZzaFiranki VMS').classes('text-2xl font-black mb-4 text-center')
-        u = ui.input('Użytkownik').classes('w-full')
-        p = ui.input('Hasło', password=True).classes('w-full').on('keydown.enter', lambda: do_login())
+        ui.label('Istebna Drone VMS').classes('text-2xl font-black mb-4 text-center text-blue-500')
         
-        def do_login():
-            db = SessionLocal()
-            user = db.query(User).filter(User.username == u.value, User.password == p.value).first()
-            if user:
-                app.storage.user.update({'authenticated': True, 'username': user.username, 'role': user.role, 'password': user.password})
-                ui.navigate.to('/')
-            else: ui.notify('Błędne dane', color='negative')
-            db.close()
+        u = ui.input('Użytkownik').classes('w-full').props('dark')
+        p = ui.input('Hasło', password=True).classes('w-full').props('dark')
         
-        ui.button('ZALOGUJ', on_click=do_login).classes('w-full mt-6 bg-blue-600')
+        async def do_login():
+            # Używamy 'with', aby mieć pewność, że sesja DB zawsze się zamknie
+            with SessionLocal() as db:
+                user = db.query(User).filter(
+                    User.username == u.value, 
+                    User.password == p.value
+                ).first()
+                
+                if user:
+                    # Zapisujemy dane do sesji (storage_secret to podpisuje)
+                    app.storage.user.update({
+                        'authenticated': True, 
+                        'username': user.username, 
+                        'role': user.role
+                    })
+                    ui.notify(f'Witaj {user.username}!', color='positive')
+                    # Krótkie opóźnienie, by sesja zdążyła się zapisać w przeglądarce
+                    await ui.run_javascript('setTimeout(() => { window.location.href = "/" }, 500)')
+                else:
+                    ui.notify('Błędne dane – sąsiadka Cię nie wpuści!', color='negative')
+        
+        # Obsługa Entera na obu polach
+        u.on('keydown.enter', do_login)
+        p.on('keydown.enter', do_login)
+        
+        ui.button('ZALOGUJ', on_click=do_login).classes('w-full mt-6 bg-blue-600 hover:bg-blue-700 text-white font-bold')
 
 @ui.page('/')
 async def dashboard():
@@ -254,12 +273,6 @@ async def dashboard():
                     # Tutaj CRUD użytkowników i Many-to-Many
                     ui.label('Konfiguracja retencji i uprawnień dostępna w bazie danych.').classes('text-zinc-400')
 
-# Reagujemy na start aplikacji, aby zwiększyć limity "rur"
-@app.on_startup
-def set_limits():
-    # Uzyskujemy dostęp do serwera Socket.IO i zwiększamy bufer do 20MB
-    # To uciszy błąd "Message too long"
-    app.native.settings.socket_io_config = {'max_http_buffer_size': 20000000}
 
 # START SYSTEMU
 if __name__ in {"__main__", "__mp_main__"}:
