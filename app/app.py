@@ -27,7 +27,7 @@ app.add_static_files('/download', str(RECORDINGS_DIR))
 app.add_static_files('/static', 'static')
 
 # --- BAZA DANYCH (SQLAlchemy) ---
-DB_URL = "sqlite:///./streaming_v3.db"
+DB_URL = "sqlite:///./vms_db.db"
 Base = declarative_base()
 engine = create_engine(DB_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
