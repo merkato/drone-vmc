@@ -156,17 +156,18 @@ def is_authenticated():
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    # Wyjątki: login, auth drona, statyczne pliki ORAZ wewnętrzne ścieżki NiceGUI
-    allowed_paths = ['/login', '/auth', '/static']
-    is_allowed = any(request.url.path.startswith(path) for path in allowed_paths)
+    # Puszczamy systemowe ścieżki NiceGUI (kluczowe dla WebSocketów!)
+    if request.url.path.startswith('/_nicegui'):
+        return await call_next(request)
     
-    # KLUCZOWE: Dodajemy wyjątek dla WebSocketu i plików systemowych NiceGUI
-    is_nicegui_internal = request.url.path.startswith('/_nicegui')
+    # Reszta wyjątków (login, api, statyczne)
+    if request.url.path in ['/login', '/auth'] or request.url.path.startswith('/static'):
+        return await call_next(request)
 
+    # Ochrona dashboardu
     if not app.storage.user.get('authenticated', False):
-        if not is_allowed and not is_nicegui_internal:
-            return responses.RedirectResponse('/login')
-            
+        return responses.RedirectResponse('/login')
+        
     return await call_next(request)
 
 @ui.page('/login')
