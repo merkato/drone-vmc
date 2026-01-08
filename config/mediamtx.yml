@@ -10,8 +10,6 @@ recordPartDuration: 10m
 # WebRTC (Podgląd w przeglądarce)
 webrtc: yes
 webrtcAddress: :8889
-webrtcServerHostname: stream.giswgorach.pl
-# Parametr webrtcICEUDP został usunięty w nowych wersjach - MediaMTX sam zarządza portami.
 
 # --- ŚCIEŻKI ---
 paths:
