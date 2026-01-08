@@ -9,10 +9,9 @@ from collections import defaultdict
 from datetime import datetime
 
 from fastapi import Request, HTTPException, responses
-from nicegui import app, ui
+from nicegui import app, ui, core
 from sqlalchemy import create_engine, Column, String, Boolean, Table, ForeignKey, Integer, Text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 
 # --- KONFIGURACJA ŚRODOWISKA ---
 DOMAIN = os.getenv('DOMAIN', 'localhost')
@@ -33,7 +32,7 @@ engine = create_engine(DB_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
 
 # Zwiększamy bufor dla wiadomości WebSocket (np. do 20 MB)
-globals.socket_io_config['max_http_buffer_size'] = 20000000
+core.app.config.socket_io_config['max_http_buffer_size'] = 20000000
 
 # Tabela asocjacyjna Uprawnień (Many-to-Many)
 stream_permissions = Table('stream_permissions', Base.metadata,
