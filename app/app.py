@@ -4,6 +4,7 @@ import shutil
 import psutil
 import httpx
 import logging
+import requests
 from urllib.parse import parse_qs
 from pathlib import Path
 from collections import defaultdict
@@ -122,6 +123,21 @@ async def media_mtx_auth(request: Request):
             return responses.Response(status_code=200)
             
     return responses.Response(status_code=401)
+
+def get_active_streams():
+    """Pobiera listę nazw aktywnych strumieni bezpośrednio z API MediaMTX."""
+    try:
+        # Zakładamy, że mediamtx jest w tej samej sieci dockera (host: mediamtx)
+        # Jeśli nie, użyj adresu IP serwera
+        response = requests.get('http://mediamtx:9997/v3/paths/list', timeout=1)
+        if response.status_code == 200:
+            data = response.json()
+            # Wyciągamy nazwy ścieżek, które mają flagę 'ready: True'
+            return [item['name'] for item in data.get('items', []) if item.get('ready')]
+    except Exception as e:
+        print(f"Błąd API MediaMTX: {e}")
+        return []
+    return []
 
 def management_page():
     ui.label('Zarządzanie Systemem').classes('text-3xl font-bold mb-6 text-white')
@@ -556,47 +572,73 @@ def users_management_interface():
         ''')
         user_table.on('del', lambda e: delete_user_logic(e.args, user_table, get_users))
 
-def live_grid_interface():
-    # Pobieramy dane z sesji (app.storage.user)
+@ui.refreshable
+def live_grid_content():
     u_id = app.storage.user.get('user_id')
     u_role = app.storage.user.get('role')
+
+    # 1. Pobieramy listę aktywnych ścieżek z MediaMTX
+    active_paths = get_active_streams()
+
+    with SessionLocal() as db:
+        if u_role == 'admin':
+            my_streams = db.query(StreamPath).all()
+        else:
+            user = db.query(User).filter(User.id == u_id).first()
+            my_streams = user.visible_streams if user else []
+
+    if not my_streams:
+        with ui.column().classes('w-full items-center py-20 border-2 border-dashed border-zinc-900 rounded-xl'):
+            ui.icon('videocam_off', size='lg').classes('text-zinc-800')
+            ui.label('Brak przypisanych strumieni').classes('text-zinc-600 italic')
+        return
+
+    # GRID: 1 kolumna (mobile), 4 kolumny (desktop)
+    with ui.grid(columns='1 md:2 lg:4').classes('w-full gap-4'):
+        for s in my_streams:
+            # Sprawdzamy czy ten konkretny dron nadaje
+            is_live = s.path_name in active_paths
+            
+            with ui.card().classes('bg-zinc-900 border border-zinc-800 p-0 overflow-hidden shadow-2xl relative'):
+                # Pasek stanu i tytuł
+                with ui.row().classes('w-full p-2 items-center justify-between bg-zinc-950 border-b border-zinc-800'):
+                    with ui.row().classes('items-center gap-2'):
+                        # Czerwona kropka LIVE
+                        if is_live:
+                            ui.icon('fiber_manual_record', color='red').classes('animate-pulse')
+                            ui.label('LIVE').classes('text-[10px] font-black text-red-500 mr-2')
+                        else:
+                            ui.icon('fiber_manual_record', color='zinc-700')
+                            ui.label('OFFLINE').classes('text-[10px] font-bold text-zinc-600 mr-2')
+                        
+                        ui.label(s.path_name.upper()).classes('text-[10px] font-bold text-zinc-300 font-mono truncate')
+                    
+                    ui.button(icon='fullscreen', on_click=lambda p=s.path_name: ui.navigate.to(f'/stream/{p}')) \
+                        .props('flat round size=sm color=zinc-500')
+
+                # Okno Wideo
+                ui.html(f'''
+                    <div style="position:relative; padding-top:56.25%; background:#000;">
+                        <iframe src="https://stream.giswgorach.pl/{s.path_name}" 
+                                style="position:absolute; top:0; left:0; width:100%; height:100%; border:none;"
+                                allowfullscreen>
+                        </iframe>
+                    </div>
+                ''', sanitize=False).classes('w-full')
+
+                # Stopka z opisem
+                with ui.row().classes('w-full p-2 bg-zinc-900/50'):
+                    ui.label(s.description or "Brak opisu").classes('text-[9px] text-zinc-500 truncate')
+
+def live_grid_interface():
+    """Główny kontener wywoływany w zakładce Grid."""
+    ui.query('body').style('background-color: #000 !important;')
     
     with ui.column().classes('w-full p-4 bg-black'):
-        ui.label('PODGLĄD OPERACYJNY').classes('text-2xl font-black text-white mb-6')
-
-        with SessionLocal() as db:
-            if u_role == 'admin':
-                my_streams = db.query(StreamPath).all()
-            else:
-                # Pobieramy obiekt użytkownika, aby skorzystać z relacji visible_streams
-                user = db.query(User).filter(User.id == u_id).first()
-                my_streams = user.visible_streams if user else []
-
-        if not my_streams:
-            ui.label('Brak aktywnych strumieni dla Twojego konta.').classes('text-zinc-500 italic')
-            return
-
-        # Grid: 1 kolumna na mobile, 2 na tablecie, 3 na PC
-        with ui.grid(columns='1 md:2 lg:3').classes('w-full gap-4'):
-            for s in my_streams:
-                with ui.card().classes('bg-zinc-900 border border-zinc-800 p-0 overflow-hidden shadow-2xl'):
-                    # Pasek tytułowy kafelka
-                    with ui.row().classes('w-full p-2 items-center justify-between bg-zinc-950'):
-                        ui.label(s.path_name.upper()).classes('text-[10px] font-bold text-zinc-400 font-mono')
-                        ui.button(icon='fullscreen', on_click=lambda p=s.path_name: ui.navigate.to(f'/stream/{p}')) \
-                            .props('flat round size=sm color=blue-400')
-
-                    # Iframe z obrazem (Z POPRAWKĄ sanitize=False)
-                    ui.html(f'''
-                        <iframe src="https://stream.giswgorach.pl/{s.path_name}" 
-                        style="width:500%; height:500%; border:none;" 
-                        allowfullscreen>
-                        </iframe>
-                        ''', sanitize=False).classes('w-full h-64')
-
-                    # Opis na dole
-                    with ui.row().classes('w-full p-2'):
-                        ui.label(s.description or "Brak opisu").classes('text-[10px] text-zinc-600 truncate')
+        live_grid_content()
+        
+        # Timer odświeża CAŁĄ zawartość co 5 sekund (usuwa nieistniejące i aktualizuje LIVE)
+        ui.timer(5.0, live_grid_content.refresh)
 
 @ui.page('/')
 def main_page():
