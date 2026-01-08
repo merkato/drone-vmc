@@ -103,26 +103,58 @@ def get_sys_resources():
     }
 
 # --- LOGIKA BACKENDU: AUTORYZACJA MEDIAMTX ---
-@app.post('/auth')
-async def media_mtx_auth(request: Request):
-    data = await request.json()
-    user_val = data.get('user')
-    pass_val = data.get('password')
-    action = data.get('action')  # 'publish' lub 'read'
+from fastapi import Request, Response
 
-    with SessionLocal() as db:
-        user = db.query(User).filter(User.username == user_val, User.password == pass_val).first()
+from fastapi import Request, Response
+
+@app.post('/auth')
+async def mediamtx_auth(request: Request):
+    """
+    Endpoint obsługujący autoryzację dla MediaMTX v1.15.6+
+    MediaMTX wysyła: user, password, path, action (publish/read), ip
+    """
+    try:
+        data = await request.json()
+        user_login = data.get('user')
+        user_pass = data.get('password')
+        stream_path = data.get('path')
+        action = data.get('action') # 'publish' dla drona, 'read' dla widza
+
+        with SessionLocal() as db:
+            # 1. Weryfikacja użytkownika
+            user = db.query(User).filter(
+                User.username == user_login, 
+                User.password == user_pass
+            ).first()
+            
+            if not user:
+                print(f"AUTH: Nieudane logowanie dla {user_login}")
+                return Response(status_code=401)
+
+            # 2. Weryfikacja strumienia
+            stream = db.query(StreamPath).filter(StreamPath.path_name == stream_path).first()
+            if not stream:
+                # Jeśli admin chce nadawać na nowej ścieżce, której nie ma w DB
+                if user.role == 'admin':
+                    return Response(status_code=200)
+                return Response(status_code=401)
+
+            # 3. Sprawdzanie uprawnień specyficznych dla akcji
+            if action == 'publish':
+                # Czy użytkownik jest Pilotem (Publisherem) lub Adminem
+                if user in stream.authorized_publishers or user.role == 'admin' or stream.owner_username == user.username:
+                    return Response(status_code=200)
+            
+            elif action == 'read':
+                # Czy użytkownik jest Widzem (Viewerem) lub Adminem
+                if user in stream.authorized_viewers or user.role == 'admin' or user in stream.authorized_publishers:
+                    return Response(status_code=200)
+
+        return Response(status_code=401)
         
-        if user:
-            # Jeśli ktoś chce nadawać (publish), musi być adminem lub operatorem
-            if action == 'publish' and user.role not in ['admin', 'operator']:
-                print(f"Odmowa nadawania dla: {user_val} (Rola: {user.role})")
-                return responses.Response(status_code=401)
-            
-            print(f"Autoryzacja pomyślna: {user_val} dla akcji {action}")
-            return responses.Response(status_code=200)
-            
-    return responses.Response(status_code=401)
+    except Exception as e:
+        print(f"BŁĄD AUTH: {e}")
+        return Response(status_code=500)
 
 def get_active_streams():
     """Pobiera listę nazw aktywnych strumieni bezpośrednio z API MediaMTX."""
