@@ -252,7 +252,8 @@ if __name__ in {"__main__", "__mp_main__"}:
     ui.run(
         host='0.0.0.0', 
         port=8080, 
-        title='drone vms',
+        title='Wiejski Drone VMS do podglądania sąsiadek',
+        storage_secret='PesaToNajgorszyProducentTaboruNaSwiecie',
         favicon='static/logo.png',
         reload=False  # Wyłączamy reload wewnątrz Dockera dla większej stabilności
     )
