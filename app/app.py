@@ -346,48 +346,34 @@ def login_page():
         ui.button('ZALOGUJ', on_click=do_login).classes('w-full mt-6 bg-blue-600 hover:bg-blue-700 text-white font-bold')
 
 def streams_management_interface(username, role):
+    # Funkcja pomocnicza do pobierania aktualnej listy
+    def get_current_users():
+        with SessionLocal() as db:
+            # Pobieramy wszystkich, żebyś widział czy ktokolwiek jest
+            return {u.id: u.username for u in db.query(User).all()}
+
     with ui.column().classes('w-full max-w-6xl mx-auto p-4 gap-6'):
-        ui.label('KONFIGURACJA STRUMIENI').classes('text-2xl font-black text-white')
-
-        with ui.card().classes('bg-zinc-900 border border-zinc-800 p-6 text-white w-full'):
-            ui.label('DODAJ / EDYTUJ DRONA').classes('text-orange-500 font-bold mb-4')
+        with ui.card().classes('bg-zinc-900 border border-zinc-800 p-6 text-white w-full shadow-2xl'):
+            ui.label('DODAJ / EDYTUJ DRONA').classes('text-lg font-bold text-orange-500 mb-4')
             
-            with ui.row().classes('w-full gap-4'):
-                s_path = ui.input('ID (Path)').classes('flex-1').props('dark filled dense')
-                s_desc = ui.input('Opis').classes('flex-1').props('dark filled dense')
+            # ... pola s_path i s_desc ...
 
-            with SessionLocal() as db:
-                users = db.query(User).all()
-                user_opts = {u.id: u.username for u in users}
-            if not user_opts:
-                ui.label('Brak użytkowników w bazie! Dodaj operatorów w zakładce Zarządzanie.')\
-                    .classes('text-amber-500 text-xs italic')
-            with ui.row().classes('w-full gap-4 mt-2'):
-                p_sel = ui.select(user_opts, multiple=True, label='PILOCI (NADAWANIE)').classes('flex-1').props('dark filled dense')
-                v_sel = ui.select(user_opts, multiple=True, label='WIDZOWIE (PODGLĄD)').classes('flex-1').props('dark filled dense')
-            rtmp_box = ui.column().classes('w-full mt-4 p-4 bg-black rounded hidden')
+            # Tworzymy selecty z początkową listą
+            current_opts = get_current_users()
+            p_sel = ui.select(current_opts, multiple=True, label='PILOCI (NADAWANIE)').classes('flex-1').props('dark filled dense')
+            v_sel = ui.select(current_opts, multiple=True, label='WIDZOWIE (PODGLĄD)').classes('flex-1').props('dark filled dense')
 
-            async def handle_save():
-                # Wywołujemy backend zapisu i generowania linków
-                links = await save_stream_backend(s_path.value, s_desc.value, p_sel.value, v_sel.value)
-                
-                rtmp_box.clear()
-                rtmp_box.remove_classes('hidden')
-                with rtmp_box:
-                    ui.label('LINKI RTMP:').classes('text-[10px] text-orange-500 mb-2')
-                    for item in links:
-                        with ui.row().classes('w-full bg-zinc-900 p-2 rounded mb-1 border border-zinc-800 items-center'):
-                            ui.label(f"{item['user']}:").classes('text-xs font-mono w-24')
-                            ui.label(item['link']).classes('text-[10px] text-zinc-500 flex-1 truncate')
-                            ui.button(icon='content_copy', on_click=lambda l=item['link']: ui.run_javascript(f'navigator.clipboard.writeText("{l}")')).props('flat round size=sm color=orange')
-                
-                ui.notify('Strumień zapisany!')
-                stream_table.rows = get_streams(username, role)
+            # --- KLUCZ DO NAPRAWY ---
+            # Dodajemy przycisk odświeżania listy lub robimy to automatycznie
+            async def refresh_user_lists():
+                new_opts = get_current_users()
+                p_sel.options = new_opts
+                v_sel.options = new_opts
+                p_sel.update()
+                v_sel.update()
+                ui.notify('Zaktualizowano listę użytkowników', color='info')
 
-            ui.button('ZAPISZ I GENERUJ LINKI', on_click=handle_save).classes('w-full mt-4 bg-orange-700 font-bold')
-
-        # Tabela strumieni (analogicznie do tabeli użytkowników)
-        # ... (kod tabeli)
+            ui.button(icon='refresh', on_click=refresh_user_lists).props('flat round size=sm').classes('absolute right-2 top-2')
 
 def users_management_interface():
     current_user = app.storage.user.get('username')
@@ -445,6 +431,64 @@ def users_management_interface():
         ''')
         user_table.on('del', lambda e: delete_user_logic(e.args, user_table, get_users))
 
+def live_grid_interface():
+    u_id = app.storage.user.get('user_id')
+    u_role = app.storage.user.get('role')
+    u_name = app.storage.user.get('username')
+
+    with ui.column().classes('w-full p-4'):
+        with ui.row().classes('w-full items-center justify-between mb-6'):
+            ui.label('PODGLĄD OPERACYJNY NA ŻYWO').classes('text-2xl font-black text-white tracking-tighter')
+            ui.button('ODŚWIEŻ GRID', icon='refresh', on_click=lambda: ui.navigate.to('/')).props('flat color=zinc-500')
+
+        # Pobieranie uprawnionych strumieni
+        with SessionLocal() as db:
+            if u_role == 'admin':
+                # Admin widzi absolutnie wszystko
+                my_streams = db.query(StreamPath).all()
+            else:
+                # Użytkownik widzi swoje + te, gdzie jest dopisany jako viewer
+                user = db.query(User).filter(User.id == u_id).first()
+                my_streams = user.visible_streams if user else []
+
+        if not my_streams:
+            with ui.column().classes('w-full items-center py-20 border-2 border-dashed border-zinc-900 rounded-xl'):
+                ui.icon('videocam_off', size='lg').classes('text-zinc-800')
+                ui.label('Brak aktywnych uprawnień do strumieni.').classes('text-zinc-600 italic')
+                ui.label('Skontaktuj się z administratorem, aby uzyskać dostęp.').classes('text-zinc-700 text-xs')
+            return
+
+        # SIATKA (GRID) - 2 kolumny na dużych ekranach, 1 na małych
+        with ui.grid(columns='1 md:2 lg:3').classes('w-full gap-4'):
+            for s in my_streams:
+                with ui.card().classes('bg-zinc-900 border border-zinc-800 p-0 overflow-hidden shadow-2xl'):
+                    # Nagłówek kafelka
+                    with ui.row().classes('w-full p-2 items-center justify-between bg-zinc-950'):
+                        with ui.row().classes('items-center gap-2'):
+                            ui.icon('sensors', color='red' if s.is_recording else 'zinc-500')
+                            ui.label(s.path_name.upper()).classes('text-xs font-bold text-zinc-300 font-mono')
+                        
+                        # Przycisk Fullscreen (Samodzielne okno)
+                        ui.button(icon='open_in_new', on_click=lambda p=s.path_name: ui.navigate.to(f'/stream/{p}'))\
+                            .props('flat round size=sm color=blue-500')
+
+                    # OKNO WIDEO (Iframe WebRTC z MediaMTX)
+                    # Adres prowadzi do Twojego proxy, który przekierowuje na port 8889 (WebRTC)
+                    ui.html(f'''
+                        <div style="position:relative; padding-top:56.25%; background:#000;">
+                            <iframe src="https://stream.giswgorach.pl/{s.path_name}" 
+                                    style="position:absolute; top:0; left:0; width:100%; height:100%; border:none;"
+                                    allowfullscreen>
+                            </iframe>
+                        </div>
+                    ''').classes('w-full')
+
+                    # Stopka kafelka
+                    with ui.row().classes('w-full p-2 items-center justify-between text-[10px] text-zinc-500'):
+                        ui.label(s.description or 'Brak opisu jednostki')
+                        if u_role in ['admin', 'operator']:
+                             ui.badge('REC', color='red-9') if s.is_recording else ui.label('READY')
+
 @ui.page('/')
 def main_page():
     ui.query('body').style('background-color: #000000;')
@@ -478,8 +522,7 @@ def main_page():
     with ui.tab_panels(tabs, value=t_grid).classes('w-full bg-black text-zinc-300'):
         
         with ui.tab_panel(t_grid):
-            # Tu wstawimy za chwilę funkcję Live Gridu
-            ui.label('WIDOK LIVE').classes('text-2xl font-black')
+            live_grid_interface()
 
         if user_role in ['admin', 'operator']:
             with ui.tab_panel(t_archive):
