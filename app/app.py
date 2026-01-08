@@ -87,35 +87,23 @@ def get_sys_resources():
 # --- LOGIKA BACKENDU: AUTORYZACJA MEDIAMTX ---
 @app.post('/auth')
 async def media_mtx_auth(request: Request):
-    try:
-        data = await request.json()
-    except:
-        return responses.JSONResponse(content={"error": "Invalid JSON"}, status_code=400)
+    data = await request.json()
+    user_val = data.get('user')
+    pass_val = data.get('password')
+    action = data.get('action')  # 'publish' lub 'read'
 
-    # 1. Sprawdź użytkownika w głównym polu 'user'
-    u_val = data.get('user')
-    p_val = data.get('password')
-
-    # 2. Jeśli puste, szukaj w polu 'query' (które jest stringiem)
-    query_str = data.get('query')
-    if query_str and (not u_val or not p_val):
-        # Zamieniamy string "user=jacek&password=123" na słownik
-        parsed_query = parse_qs(query_str)
-        u_val = u_val or parsed_query.get('user', [None])[0]
-        p_val = p_val or parsed_query.get('password', [None])[0]
-
-    # Tutaj Twoja dalsza logika weryfikacji w bazie danych...
-    # if check_user(u_val, p_val): return responses.Response(status_code=200)
-    
-    print(f"Auth attempt for user: {u_val}") # Debug w logach
-    
-    # Dla testów, jeśli chcesz wpuścić każdego (usuń to później!):
-    # return responses.Response(status_code=200)
-    
-    # Prawidłowa weryfikacja (uproszczona):
-    if u_val == "admin" and p_val == "admin": # Przykład
-         return responses.Response(status_code=200)
-         
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == user_val, User.password == pass_val).first()
+        
+        if user:
+            # Jeśli ktoś chce nadawać (publish), musi być adminem lub operatorem
+            if action == 'publish' and user.role not in ['admin', 'operator']:
+                print(f"Odmowa nadawania dla: {user_val} (Rola: {user.role})")
+                return responses.Response(status_code=401)
+            
+            print(f"Autoryzacja pomyślna: {user_val} dla akcji {action}")
+            return responses.Response(status_code=200)
+            
     return responses.Response(status_code=401)
 
 def management_page():
@@ -304,8 +292,8 @@ def main_page():
             # Twoje logo 38kB z app/static/logo.png
             ui.image('/static/logo.png').classes('w-12 h-12')
             with ui.column().classes('gap-0'):
-                ui.label('ZzaFiranki VMS').classes('text-xl font-black text-white leading-none')
-                ui.label('JEDNOSTKA OPERACYJNA: KONIAKÓW').classes('text-[10px] text-blue-500 font-bold tracking-widest uppercase')
+                ui.label('Drone VMS').classes('text-xl font-black text-white leading-none')
+                ui.label('Ochotnicza Straż Pożarna Istebna-Centrum').classes('text-[10px] text-blue-500 font-bold tracking-widest uppercase')
 
         with ui.row().classes('items-center gap-3'):
             ui.label(f"OPERATOR: {username.upper()}").classes('text-[10px] text-zinc-500 font-mono')
@@ -313,8 +301,9 @@ def main_page():
 
     # --- PASEK ZAKŁADEK ---
     with ui.tabs().classes('w-full bg-zinc-900 text-zinc-400 border-b border-zinc-800') as tabs:
-        t_grid = ui.tab('GRID OPERACYJNY', icon='grid_view')
-        t_archive = ui.tab('ARCHIWUM', icon='history')
+        t_grid = ui.tab('GRID', icon='grid_view')
+        if user_role in ['admin', 'operator']:
+            t_archive = ui.tab('ARCHIWUM', icon='history')
         if user_role == 'admin':
             t_admin = ui.tab('ZARZĄDZANIE', icon='settings')
 
@@ -368,8 +357,7 @@ def main_page():
                             ui.label('DODAJ UŻYTKOWNIKA').classes('text-lg font-bold mb-4 text-green-500')
                             add_n = ui.input('Login').classes('w-full').props('dark filled dense')
                             add_p = ui.input('Hasło', password=True).classes('w-full').props('dark filled dense')
-                            add_r = ui.select(['admin', 'operator'], value='operator', label='Rola').classes('w-full').props('dark filled dense text-white')
-
+                            add_r = ui.select(['admin', 'operator', 'viewer'], value='viewer', label='Rola').classes('w-full').props('dark filled dense text-white')
                             async def handle_add_user():
                                 if not add_n.value or not add_p.value:
                                     ui.notify('Uzupełnij pola!', color='negative')
