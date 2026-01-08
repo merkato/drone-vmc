@@ -310,78 +310,95 @@ def login_page():
         ui.button('ZALOGUJ', on_click=do_login).classes('w-full mt-6 bg-blue-600 hover:bg-blue-700 text-white font-bold')
 
 async def save_stream_backend(path_name, description, publisher_ids, viewer_ids):
-    """Logika zapisu do bazy danych."""
+    """Zapisuje strumień i relacje, dbając o poprawne typy danych."""
     current_admin = app.storage.user.get('username')
-    with SessionLocal() as db:
-        stream = db.query(StreamPath).filter(StreamPath.path_name == path_name).first()
-        if not stream:
-            stream = StreamPath(path_name=path_name, description=description, owner_username=current_admin)
-            db.add(stream)
-        else:
-            stream.description = description
-        
-        # Synchronizacja relacji
-        stream.authorized_publishers = db.query(User).filter(User.id.in_(publisher_ids)).all()
-        stream.authorized_viewers = db.query(User).filter(User.id.in_(viewer_ids)).all()
-        db.commit()
-        
-        # Generowanie linków RTMP
-        links = []
-        for pub in stream.authorized_publishers:
-            l = f"rtmp://stream.giswgorach.pl/{path_name}?user={pub.username}&password={pub.password}"
-            links.append({'user': pub.username, 'link': l})
-        return links
+    
+    # Konwersja ID na int (na wypadek gdyby NiceGUI przesłało str)
+    pub_ids = [int(i) for i in publisher_ids] if publisher_ids else []
+    view_ids = [int(i) for i in viewer_ids] if viewer_ids else []
+
+    try:
+        with SessionLocal() as db:
+            # 1. Pobierz lub stwórz strumień
+            stream = db.query(StreamPath).filter(StreamPath.path_name == path_name).first()
+            if not stream:
+                stream = StreamPath(path_name=path_name, description=description, owner_username=current_admin)
+                db.add(stream)
+                db.flush() # Pobierz obiekt do sesji
+            else:
+                stream.description = description
+
+            # 2. Pobierz obiekty użytkowników na podstawie ID
+            publishers = db.query(User).filter(User.id.in_(pub_ids)).all() if pub_ids else []
+            viewers = db.query(User).filter(User.id.in_(view_ids)).all() if view_ids else []
+
+            # 3. Zaktualizuj relacje many-to-many
+            stream.authorized_publishers = publishers
+            stream.authorized_viewers = viewers
+            
+            db.commit()
+
+            # 4. Generowanie linków
+            links = []
+            for pub in publishers:
+                l = f"rtmp://stream.giswgorach.pl/{path_name}?user={pub.username}&password={pub.password}"
+                links.append({'user': pub.username, 'link': l})
+            return links
+    except Exception as e:
+        print(f"BŁĄD ZAPISU: {e}")
+        return None
 
 def streams_management_interface(username, role):
     def get_current_users():
         with SessionLocal() as db:
-            # Pobieramy wszystkich użytkowników (id i nazwa)
             return {u.id: u.username for u in db.query(User).all()}
 
     with ui.column().classes('w-full max-w-6xl mx-auto p-4 gap-6'):
         with ui.card().classes('bg-zinc-900 border border-zinc-800 p-8 text-white w-full shadow-2xl relative'):
             ui.label('KONFIGURACJA STRUMIENIA').classes('text-xl font-black text-orange-500 mb-6')
 
-            # --- POLA TEKSTOWE ---
             with ui.row().classes('w-full gap-4 mb-4'):
                 s_path = ui.input('ID Strumienia (np. istebna/mini1)').classes('flex-1').props('dark filled')
                 s_desc = ui.input('Opis / Lokalizacja').classes('flex-1').props('dark filled')
 
-            # --- WYBÓR UŻYTKOWNIKÓW ---
             u_opts = get_current_users()
             with ui.row().classes('w-full gap-4 mb-4'):
                 p_sel = ui.select(u_opts, multiple=True, label='PILOCI (NADAWANIE)').classes('flex-1').props('dark filled')
                 v_sel = ui.select(u_opts, multiple=True, label='WIDZOWIE (PODGLĄD)').classes('flex-1').props('dark filled')
 
-            # --- KONTENER NA LINKI RTMP ---
-            rtmp_box = ui.column().classes('w-full mt-6 p-4 bg-black rounded hidden border border-zinc-800')
+            rtmp_box = ui.column().classes('w-full mt-6 p-4 bg-black rounded hidden border border-zinc-800 shadow-inner')
 
-            # --- LOGIKA PRZYCISKU ---
             async def handle_save():
+                # Śledzenie postępu w UI
+                ui.notify('Rozpoczynam zapisywanie...', color='info')
+                
                 if not s_path.value:
-                    ui.notify('BŁĄD: Podaj ID strumienia!', color='negative')
+                    ui.notify('BŁĄD: Musisz podać ID strumienia!', color='negative', icon='report')
                     return
                 
-                # Zapisujemy i odbieramy linki
+                # Wywołanie backendu
                 links = await save_stream_backend(s_path.value, s_desc.value, p_sel.value, v_sel.value)
                 
-                # Wyświetlamy linki pod formularzem
+                if links is None:
+                    ui.notify('Wystąpił błąd bazy danych!', color='negative', icon='error')
+                    return
+
+                # Wyświetlanie linków
                 rtmp_box.clear()
                 rtmp_box.remove_classes('hidden')
                 with rtmp_box:
-                    ui.label('LINKI RTMP DLA PILOTÓW:').classes('text-orange-500 font-bold mb-2 text-xs')
+                    ui.label('GENEROWANIE LINKÓW RTMP...').classes('text-orange-500 font-bold mb-2 text-[10px]')
                     for item in links:
-                        with ui.row().classes('w-full bg-zinc-900 p-2 rounded mb-1 items-center justify-between'):
-                            ui.label(item['user']).classes('text-xs font-bold w-20')
-                            ui.label(item['link']).classes('text-[10px] text-zinc-500 truncate flex-1 px-4')
+                        with ui.row().classes('w-full bg-zinc-900 p-2 rounded mb-1 items-center border border-zinc-800 shadow-sm'):
+                            ui.label(item['user']).classes('text-xs font-bold w-24 text-zinc-300')
+                            ui.label(item['link']).classes('text-[10px] text-zinc-500 truncate flex-1 px-4 font-mono')
                             ui.button(icon='content_copy', on_click=lambda l=item['link']: ui.run_javascript(f'navigator.clipboard.writeText("{l}")'))\
-                                .props('flat round size=sm color=orange')
+                                .props('flat round size=sm color=orange-4')
                 
-                ui.notify('Strumień i uprawnienia zapisane poprawnie!', color='positive')
+                ui.notify(f'Zapisano pomyślnie: {s_path.value}', color='positive', icon='done')
 
-            # --- PRZYCISK ZAPISU (Główny element) ---
             ui.button('ZAPISZ I GENERUJ LINKI RTMP', on_click=handle_save)\
-                .classes('w-full mt-4 bg-orange-700 hover:bg-orange-600 font-bold py-4 text-lg')
+                .classes('w-full mt-6 bg-orange-700 hover:bg-orange-600 font-bold py-4 text-lg transition-all shadow-lg')
 
 def users_management_interface():
     current_user = app.storage.user.get('username')
