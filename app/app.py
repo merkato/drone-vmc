@@ -299,7 +299,6 @@ def login_page():
         p = ui.input('Hasło', password=True).classes('w-full').props('dark')
         
         async def do_login():
-            # Używamy 'with', aby mieć pewność, że sesja DB zawsze się zamknie
             with SessionLocal() as db:
                 user = db.query(User).filter(
                     User.username == u.value, 
@@ -307,15 +306,17 @@ def login_page():
                 ).first()
                 
                 if user:
-                    # Zapisujemy dane do sesji (storage_secret to podpisuje)
+                    # KLUCZOWA POPRAWKA: Dodajemy 'user_id': user.id
                     app.storage.user.update({
                         'authenticated': True, 
                         'username': user.username, 
-                        'role': user.role
+                        'role': user.role,
+                        'user_id': user.id  # <--- BEZ TEGO GRID NIE DZIAŁA
                     })
                     ui.notify(f'Witaj {user.username}!', color='positive')
-                    # Krótkie opóźnienie, by sesja zdążyła się zapisać w przeglądarce
-                    await ui.run_javascript('setTimeout(() => { window.location.href = "/" }, 500)')
+                    
+                    # Zamiast JS, użyjmy wbudowanego przekierowania NiceGUI (jest stabilniejsze dla sesji)
+                    ui.navigate.to('/')
                 else:
                     ui.notify('Błędne dane – sąsiadka Cię nie wpuści!', color='negative')
         
