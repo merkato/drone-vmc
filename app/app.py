@@ -357,13 +357,14 @@ def streams_management_interface(username, role):
                 s_desc = ui.input('Opis').classes('flex-1').props('dark filled dense')
 
             with SessionLocal() as db:
-                # Lista osób do uprawnień
-                opts = {u.id: u.username for u in db.query(User).filter(User.role != 'admin').all()}
-
+                users = db.query(User).all()
+                user_opts = {u.id: u.username for u in users}
+            if not user_opts:
+                ui.label('Brak użytkowników w bazie! Dodaj operatorów w zakładce Zarządzanie.')\
+                    .classes('text-amber-500 text-xs italic')
             with ui.row().classes('w-full gap-4 mt-2'):
-                p_sel = ui.select(opts, multiple=True, label='PILOCI (NADAWANIE)').classes('flex-1').props('dark filled dense')
-                v_sel = ui.select(opts, multiple=True, label='WIDZOWIE (PODGLĄD)').classes('flex-1').props('dark filled dense')
-
+                p_sel = ui.select(user_opts, multiple=True, label='PILOCI (NADAWANIE)').classes('flex-1').props('dark filled dense')
+                v_sel = ui.select(user_opts, multiple=True, label='WIDZOWIE (PODGLĄD)').classes('flex-1').props('dark filled dense')
             rtmp_box = ui.column().classes('w-full mt-4 p-4 bg-black rounded hidden')
 
             async def handle_save():
@@ -446,6 +447,8 @@ def users_management_interface():
 
 @ui.page('/')
 def main_page():
+    ui.query('body').style('background-color: #000000;')
+    ui.query('.q-page').style('background-color: #000000;')
     # Pobieramy dane sesji
     user_role = app.storage.user.get('role', 'operator')
     username = app.storage.user.get('username', 'Niezalogowany')
