@@ -440,48 +440,36 @@ def users_management_interface():
         user_table.on('del', lambda e: delete_user_logic(e.args, user_table, get_users))
 
 def live_grid_interface():
+    # Pobieramy dane z sesji (app.storage.user)
     u_id = app.storage.user.get('user_id')
     u_role = app.storage.user.get('role')
-    u_name = app.storage.user.get('username')
+    
+    with ui.column().classes('w-full p-4 bg-black'):
+        ui.label('PODGLĄD OPERACYJNY').classes('text-2xl font-black text-white mb-6')
 
-    with ui.column().classes('w-full p-4'):
-        with ui.row().classes('w-full items-center justify-between mb-6'):
-            ui.label('PODGLĄD OPERACYJNY NA ŻYWO').classes('text-2xl font-black text-white tracking-tighter')
-            ui.button('ODŚWIEŻ GRID', icon='refresh', on_click=lambda: ui.navigate.to('/')).props('flat color=zinc-500')
-
-        # Pobieranie uprawnionych strumieni
         with SessionLocal() as db:
             if u_role == 'admin':
-                # Admin widzi absolutnie wszystko
                 my_streams = db.query(StreamPath).all()
             else:
-                # Użytkownik widzi swoje + te, gdzie jest dopisany jako viewer
+                # Pobieramy obiekt użytkownika, aby skorzystać z relacji visible_streams
                 user = db.query(User).filter(User.id == u_id).first()
                 my_streams = user.visible_streams if user else []
 
         if not my_streams:
-            with ui.column().classes('w-full items-center py-20 border-2 border-dashed border-zinc-900 rounded-xl'):
-                ui.icon('videocam_off', size='lg').classes('text-zinc-800')
-                ui.label('Brak aktywnych uprawnień do strumieni.').classes('text-zinc-600 italic')
-                ui.label('Skontaktuj się z administratorem, aby uzyskać dostęp.').classes('text-zinc-700 text-xs')
+            ui.label('Brak aktywnych strumieni dla Twojego konta.').classes('text-zinc-500 italic')
             return
 
-        # SIATKA (GRID) - 2 kolumny na dużych ekranach, 1 na małych
+        # Grid: 1 kolumna na mobile, 2 na tablecie, 3 na PC
         with ui.grid(columns='1 md:2 lg:3').classes('w-full gap-4'):
             for s in my_streams:
                 with ui.card().classes('bg-zinc-900 border border-zinc-800 p-0 overflow-hidden shadow-2xl'):
-                    # Nagłówek kafelka
+                    # Pasek tytułowy kafelka
                     with ui.row().classes('w-full p-2 items-center justify-between bg-zinc-950'):
-                        with ui.row().classes('items-center gap-2'):
-                            ui.icon('sensors', color='red' if s.is_recording else 'zinc-500')
-                            ui.label(s.path_name.upper()).classes('text-xs font-bold text-zinc-300 font-mono')
-                        
-                        # Przycisk Fullscreen (Samodzielne okno)
-                        ui.button(icon='open_in_new', on_click=lambda p=s.path_name: ui.navigate.to(f'/stream/{p}'))\
-                            .props('flat round size=sm color=blue-500')
+                        ui.label(s.path_name.upper()).classes('text-[10px] font-bold text-zinc-400 font-mono')
+                        ui.button(icon='fullscreen', on_click=lambda p=s.path_name: ui.navigate.to(f'/stream/{p}')) \
+                            .props('flat round size=sm color=blue-400')
 
-                    # OKNO WIDEO (Iframe WebRTC z MediaMTX)
-                    # Adres prowadzi do Twojego proxy, który przekierowuje na port 8889 (WebRTC)
+                    # Iframe z obrazem (Z POPRAWKĄ sanitize=False)
                     ui.html(f'''
                         <div style="position:relative; padding-top:56.25%; background:#000;">
                             <iframe src="https://stream.giswgorach.pl/{s.path_name}" 
@@ -489,13 +477,11 @@ def live_grid_interface():
                                     allowfullscreen>
                             </iframe>
                         </div>
-                    ''').classes('w-full')
+                    ''', sanitize=False).classes('w-full')
 
-                    # Stopka kafelka
-                    with ui.row().classes('w-full p-2 items-center justify-between text-[10px] text-zinc-500'):
-                        ui.label(s.description or 'Brak opisu jednostki')
-                        if u_role in ['admin', 'operator']:
-                             ui.badge('REC', color='red-9') if s.is_recording else ui.label('READY')
+                    # Opis na dole
+                    with ui.row().classes('w-full p-2'):
+                        ui.label(s.description or "Brak opisu").classes('text-[10px] text-zinc-600 truncate')
 
 @ui.page('/')
 def main_page():
