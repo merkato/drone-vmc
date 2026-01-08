@@ -369,33 +369,32 @@ def streams_management_interface(username, role):
             rtmp_box = ui.column().classes('w-full mt-6 p-4 bg-black rounded hidden border border-zinc-800 shadow-inner')
 
             async def handle_save():
-                # Śledzenie postępu w UI
                 ui.notify('Rozpoczynam zapisywanie...', color='info')
                 
                 if not s_path.value:
-                    ui.notify('BŁĄD: Musisz podać ID strumienia!', color='negative', icon='report')
+                    ui.notify('BŁĄD: Podaj ID strumienia!', color='negative')
                     return
                 
                 # Wywołanie backendu
                 links = await save_stream_backend(s_path.value, s_desc.value, p_sel.value, v_sel.value)
                 
-                if links is None:
-                    ui.notify('Wystąpił błąd bazy danych!', color='negative', icon='error')
-                    return
-
-                # Wyświetlanie linków
-                rtmp_box.clear()
-                rtmp_box.remove_classes('hidden')
-                with rtmp_box:
-                    ui.label('GENEROWANIE LINKÓW RTMP...').classes('text-orange-500 font-bold mb-2 text-[10px]')
-                    for item in links:
-                        with ui.row().classes('w-full bg-zinc-900 p-2 rounded mb-1 items-center border border-zinc-800 shadow-sm'):
-                            ui.label(item['user']).classes('text-xs font-bold w-24 text-zinc-300')
-                            ui.label(item['link']).classes('text-[10px] text-zinc-500 truncate flex-1 px-4 font-mono')
-                            ui.button(icon='content_copy', on_click=lambda l=item['link']: ui.run_javascript(f'navigator.clipboard.writeText("{l}")'))\
-                                .props('flat round size=sm color=orange-4')
-                
-                ui.notify(f'Zapisano pomyślnie: {s_path.value}', color='positive', icon='done')
+                if links:
+                    rtmp_box.clear()
+                    # POPRAWKA: remove_class zamiast remove_classes
+                    rtmp_box.set_visibility(True) # Alternatywnie: rtmp_box.remove_class('hidden')
+                    
+                    with rtmp_box:
+                        ui.label('LINKI RTMP DLA PILOTÓW:').classes('text-orange-500 font-bold mb-2 text-[10px]')
+                        for item in links:
+                            with ui.row().classes('w-full bg-zinc-900 p-2 rounded mb-1 items-center border border-zinc-800'):
+                                ui.label(item['user']).classes('text-xs font-bold w-20')
+                                ui.label(item['link']).classes('text-[10px] text-zinc-500 truncate flex-1 px-4 font-mono')
+                                ui.button(icon='content_copy', on_click=lambda l=item['link']: ui.run_javascript(f'navigator.clipboard.writeText("{l}")')) \
+                                    .props('flat round size=sm color=orange')
+                    
+                    ui.notify(f'Zapisano: {s_path.value}', color='positive')
+                else:
+                    ui.notify('Błąd zapisu do bazy danych', color='negative')
 
             ui.button('ZAPISZ I GENERUJ LINKI RTMP', on_click=handle_save)\
                 .classes('w-full mt-6 bg-orange-700 hover:bg-orange-600 font-bold py-4 text-lg transition-all shadow-lg')
@@ -488,13 +487,11 @@ def live_grid_interface():
 
                     # Iframe z obrazem (Z POPRAWKĄ sanitize=False)
                     ui.html(f'''
-                        <div style="position:relative; padding-top:56.25%; background:#000;">
-                            <iframe src="https://stream.giswgorach.pl/{s.path_name}" 
-                                    style="position:absolute; top:0; left:0; width:100%; height:100%; border:none;"
-                                    allowfullscreen>
-                            </iframe>
-                        </div>
-                    ''', sanitize=False).classes('w-full')
+                        <iframe src="https://stream.giswgorach.pl/{s.path_name}" 
+                        style="width:500%; height:500%; border:none;" 
+                        allowfullscreen>
+                        </iframe>
+                        ''', sanitize=False).classes('w-full h-64')
 
                     # Opis na dole
                     with ui.row().classes('w-full p-2'):
