@@ -346,26 +346,39 @@ def login_page():
         ui.button('ZALOGUJ', on_click=do_login).classes('w-full mt-6 bg-blue-600 hover:bg-blue-700 text-white font-bold')
 
 def streams_management_interface(username, role):
-    # Funkcja pomocnicza do pobierania aktualnej listy
+    # Funkcja pobierająca aktualną listę użytkowników z bazy
     def get_current_users():
         with SessionLocal() as db:
-            # Pobieramy wszystkich, żebyś widział czy ktokolwiek jest
             return {u.id: u.username for u in db.query(User).all()}
 
     with ui.column().classes('w-full max-w-6xl mx-auto p-4 gap-6'):
-        with ui.card().classes('bg-zinc-900 border border-zinc-800 p-6 text-white w-full shadow-2xl'):
+        with ui.card().classes('bg-zinc-900 border border-zinc-800 p-6 text-white w-full shadow-2xl relative'):
+            # Przycisk odświeżania listy osób (w rogu karty)
+            ui.button(icon='refresh', on_click=lambda: refresh_lists()) \
+                .props('flat round size=sm color=zinc-500') \
+                .classes('absolute right-2 top-2') \
+                .tooltip('Odśwież listę użytkowników')
+
             ui.label('DODAJ / EDYTUJ DRONA').classes('text-lg font-bold text-orange-500 mb-4')
             
-            # ... pola s_path i s_desc ...
+            # WIERSZ 1: ID i OPIS (Tego brakowało w Twoim fragmencie)
+            with ui.row().classes('w-full gap-4 mb-2'):
+                s_path = ui.input('ID (Path)', placeholder='np. mavic-1').classes('flex-1').props('dark filled dense')
+                s_desc = ui.input('Opis', placeholder='np. Jednostka Koniaków').classes('flex-1').props('dark filled dense')
 
-            # Tworzymy selecty z początkową listą
+            # WIERSZ 2: Wybór Pilotów i Widzów
             current_opts = get_current_users()
-            p_sel = ui.select(current_opts, multiple=True, label='PILOCI (NADAWANIE)').classes('flex-1').props('dark filled dense')
-            v_sel = ui.select(current_opts, multiple=True, label='WIDZOWIE (PODGLĄD)').classes('flex-1').props('dark filled dense')
+            with ui.row().classes('w-full gap-4'):
+                p_sel = ui.select(current_opts, multiple=True, label='PILOCI (NADAWANIE)') \
+                    .classes('flex-1').props('dark filled dense')
+                v_sel = ui.select(current_opts, multiple=True, label='WIDZOWIE (PODGLĄD)') \
+                    .classes('flex-1').props('dark filled dense')
 
-            # --- KLUCZ DO NAPRAWY ---
-            # Dodajemy przycisk odświeżania listy lub robimy to automatycznie
-            async def refresh_user_lists():
+            # Sekcja na wygenerowane linki (początkowo ukryta)
+            rtmp_box = ui.column().classes('w-full mt-4 p-4 bg-black rounded hidden border border-zinc-800')
+
+            # Funkcja odświeżająca opcje w selectach
+            def refresh_lists():
                 new_opts = get_current_users()
                 p_sel.options = new_opts
                 v_sel.options = new_opts
@@ -373,7 +386,34 @@ def streams_management_interface(username, role):
                 v_sel.update()
                 ui.notify('Zaktualizowano listę użytkowników', color='info')
 
-            ui.button(icon='refresh', on_click=refresh_user_lists).props('flat round size=sm').classes('absolute right-2 top-2')
+            # LOGIKA ZAPISU (Tego brakowało!)
+            async def handle_save():
+                if not s_path.value:
+                    ui.notify('Podaj ID drona!', color='negative')
+                    return
+                
+                # Wywołanie backendu (zapis do bazy i generowanie linków)
+                rtmp_data = await save_stream_with_permissions(
+                    s_path.value, s_desc.value, p_sel.value, v_sel.value
+                )
+                
+                # Pokazanie linków
+                rtmp_box.clear()
+                rtmp_box.remove_classes('hidden')
+                with rtmp_box:
+                    ui.label('GOTOWE LINKI RTMP:').classes('text-[10px] font-bold text-orange-500 mb-2')
+                    for item in rtmp_data:
+                        with ui.row().classes('w-full items-center bg-zinc-900 p-2 rounded mb-1 border border-zinc-800'):
+                            ui.label(f"{item['user']}:").classes('text-xs font-mono w-24')
+                            ui.label(item['link']).classes('text-[10px] text-zinc-500 flex-1 truncate')
+                            ui.button(icon='content_copy', on_click=lambda l=item['link']: ui.run_javascript(f'navigator.clipboard.writeText("{l}")')) \
+                                .props('flat round size=sm color=orange')
+                
+                ui.notify(f'Strumień {s_path.value} zapisany!', color='positive')
+
+            # PRZYCISK ZAPISU (Tego brakowało!)
+            ui.button('ZAPISZ I GENERUJ LINKI', on_click=handle_save) \
+                .classes('w-full mt-6 bg-orange-700 hover:bg-orange-600 font-bold py-3')
 
 def users_management_interface():
     current_user = app.storage.user.get('username')
