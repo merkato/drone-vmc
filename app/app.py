@@ -245,12 +245,11 @@ async def dashboard():
                     ui.label('Konfiguracja retencji i uprawnień dostępna w bazie danych.').classes('text-zinc-400')
 
 # START SYSTEMU
-if __name__ in {"__main__", "nicegui"}:
-    db = SessionLocal()
-    if not db.query(User).filter(User.username == 'admin').first():
-        db.add(User(username='admin', password='123', role='admin'))
-        db.add(SystemConfig())
-        db.commit()
-    db.close()
-    
-    ui.run(title="ZzaFiranki VMS", storage_secret=STORAGE_SECRET, port=8080, dark=True)
+if __name__ in {"__main__", "__mp_main__"}:
+    ui.run(
+        host='0.0.0.0', 
+        port=8080, 
+        title='drone vms',
+        favicon='static/logo.png',
+        reload=False  # Wyłączamy reload wewnątrz Dockera dla większej stabilności
+    )
