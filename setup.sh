@@ -1,5 +1,5 @@
 #!/bin/bash
-# --- DRONE CORE VMS INSTALLER ---
+# --- DRONE VMS INSTALLER ---
 
 read -p "Podaj domenę (np. drony.twoja.pl): " MY_DOMAIN
 read -p "Podaj tajny klucz sesji (losowe znaki): " MY_SECRET
