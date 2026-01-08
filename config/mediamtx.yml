@@ -1,21 +1,20 @@
-# --- USTAWIENIA GLOBALNE ---
-# W nowej wersji adres URL autoryzacji ląduje na samym szczycie
+# --- KONFIGURACJA GLOBALNA ---
+# Autoryzacja zewnętrzna (URL do Twojej aplikacji)
 externalAuthenticationURL: http://drone_app:8080/auth
 
-# Globalne parametry zapisu
+# Parametry zapisu (fmp4 jest nowocześniejszy i bezpieczniejszy)
 recordFormat: fmp4
 recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S
 recordPartDuration: 10m
 
-# WebRTC
+# WebRTC (Podgląd w przeglądarce)
 webrtc: yes
 webrtcAddress: :8889
-webrtcICEUDP: yes
-# Tutaj wpisz swoją domenę (bez http/https)
 webrtcServerHostname: stream.giswgorach.pl
+# Parametr webrtcICEUDP został usunięty w nowych wersjach - MediaMTX sam zarządza portami.
 
-# --- KONFIGURACJA ŚCIEŻEK ---
+# --- ŚCIEŻKI ---
 paths:
   all:
-    # Sekcja nie jest pusta - zawiera flagi sterujące
-    record: no # Domyślnie wyłączone, app.py włączy to dynamicznie
+    # Domyślnie wyłączamy autostart nagrywania (app.py będzie tym sterować)
+    record: no
