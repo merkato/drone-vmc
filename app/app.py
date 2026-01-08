@@ -577,15 +577,18 @@ def live_grid_content():
     u_id = app.storage.user.get('user_id')
     u_role = app.storage.user.get('role')
 
-    # 1. Pobieramy listę aktywnych ścieżek z MediaMTX
     active_paths = get_active_streams()
 
     with SessionLocal() as db:
+        # POBIERAMY PEŁNY OBIEKT UŻYTKOWNIKA (potrzebujemy hasła)
+        current_u = db.query(User).filter(User.id == u_id).first()
+        if not current_u:
+            return
+
         if u_role == 'admin':
             my_streams = db.query(StreamPath).all()
         else:
-            user = db.query(User).filter(User.id == u_id).first()
-            my_streams = user.visible_streams if user else []
+            my_streams = current_u.visible_streams if current_u else []
 
     if not my_streams:
         with ui.column().classes('w-full items-center py-20 border-2 border-dashed border-zinc-900 rounded-xl'):
@@ -593,17 +596,20 @@ def live_grid_content():
             ui.label('Brak przypisanych strumieni').classes('text-zinc-600 italic')
         return
 
-    # GRID: 1 kolumna (mobile), 4 kolumny (desktop)
     with ui.grid(columns='1 md:2 lg:4').classes('w-full gap-4'):
         for s in my_streams:
-            # Sprawdzamy czy ten konkretny dron nadaje
             is_live = s.path_name in active_paths
             
+            # --- KLUCZOWA POPRAWKA: DOPISANIE USER I PASSWORD DO URL ---
+            # Dzięki temu iFrame zaloguje się automatycznie "pod spodem"
+            stream_url = (
+                f"https://stream.giswgorach.pl/{s.path_name}"
+                f"?user={current_u.username}&password={current_u.password}"
+            )
+
             with ui.card().classes('bg-zinc-900 border border-zinc-800 p-0 overflow-hidden shadow-2xl relative'):
-                # Pasek stanu i tytuł
                 with ui.row().classes('w-full p-2 items-center justify-between bg-zinc-950 border-b border-zinc-800'):
                     with ui.row().classes('items-center gap-2'):
-                        # Czerwona kropka LIVE
                         if is_live:
                             ui.icon('fiber_manual_record', color='red').classes('animate-pulse')
                             ui.label('LIVE').classes('text-[10px] font-black text-red-500 mr-2')
@@ -613,32 +619,22 @@ def live_grid_content():
                         
                         ui.label(s.path_name.upper()).classes('text-[10px] font-bold text-zinc-300 font-mono truncate')
                     
-                    ui.button(icon='fullscreen', on_click=lambda p=s.path_name: ui.navigate.to(f'/stream/{p}')) \
+                    # Link do fullscreen też musi mieć poświadczenia
+                    ui.button(icon='fullscreen', on_click=lambda url=stream_url: ui.navigate.to(url, new_tab=True)) \
                         .props('flat round size=sm color=zinc-500')
 
-                # Okno Wideo
+                # Okno Wideo z przekazanymi danymi logowania
                 ui.html(f'''
                     <div style="position:relative; padding-top:56.25%; background:#000;">
-                        <iframe src="https://stream.giswgorach.pl/{s.path_name}" 
+                        <iframe src="{stream_url}" 
                                 style="position:absolute; top:0; left:0; width:100%; height:100%; border:none;"
                                 allowfullscreen>
                         </iframe>
                     </div>
                 ''', sanitize=False).classes('w-full')
 
-                # Stopka z opisem
                 with ui.row().classes('w-full p-2 bg-zinc-900/50'):
                     ui.label(s.description or "Brak opisu").classes('text-[9px] text-zinc-500 truncate')
-
-def live_grid_interface():
-    """Główny kontener wywoływany w zakładce Grid."""
-    ui.query('body').style('background-color: #000 !important;')
-    
-    with ui.column().classes('w-full p-4 bg-black'):
-        live_grid_content()
-        
-        # Timer odświeża CAŁĄ zawartość co 5 sekund (usuwa nieistniejące i aktualizuje LIVE)
-        ui.timer(5.0, live_grid_content.refresh)
 
 @ui.page('/')
 def main_page():
