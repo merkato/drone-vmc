@@ -1,18 +1,18 @@
-# --- KONFIGURACJA GLOBALNA ---
-# Autoryzacja zewnętrzna (URL do Twojej aplikacji)
-externalAuthenticationURL: http://drone_app:8080/auth
+# --- KONFIGURACJA DLA v1.15.6+ ---
+# Nowy sposób autoryzacji zewnętrznej
+authMethod: http
+authHTTPAddress: http://drone_app:8080/auth
 
-# Parametry zapisu (fmp4 jest nowocześniejszy i bezpieczniejszy)
-recordFormat: fmp4
-recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S
-recordPartDuration: 10m
+# Nowy sposób definiowania domyślnych parametrów zapisu
+pathDefaults:
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S
+  recordFormat: fmp4
+  recordPartDuration: 10m
 
-# WebRTC (Podgląd w przeglądarce)
+# WebRTC
 webrtc: yes
 webrtcAddress: :8889
 
-# --- ŚCIEŻKI ---
 paths:
   all:
-    # Domyślnie wyłączamy autostart nagrywania (app.py będzie tym sterować)
     record: no
