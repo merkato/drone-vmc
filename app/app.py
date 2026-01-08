@@ -235,6 +235,54 @@ async def run_retention_task():
 def is_authenticated():
     return app.storage.user.get('authenticated', False)
 
+def get_my_grid_streams():
+    u_id = app.storage.user.get('user_id')
+    u_role = app.storage.user.get('role')
+    
+    with SessionLocal() as db:
+        if u_role == 'admin':
+            return db.query(StreamPath).all() # Admin widzi wszystko
+        
+        # Pobieramy tylko te streamy, gdzie użytkownik jest na liście authorized_viewers
+        user = db.query(User).filter(User.id == u_id).first()
+        return user.visible_streams # NiceGUI / SQLAlchemy automatycznie to przefiltruje
+
+def generate_rtmp_links(path_name, publisher_users):
+    """Generuje listę linków RTMP z poświadczeniami dla każdego pilota."""
+    links = []
+    base_url = "rtmp://stream.giswgorach.pl"
+    for user in publisher_users:
+        # Format: rtmp://domena/sciezka?user=login&password=haslo
+        link = f"{base_url}/{path_name}?user={user.username}&password={user.password}"
+        links.append({'user': user.username, 'link': link})
+    return links
+
+async def save_stream_with_permissions(path_name, description, publisher_ids, viewer_ids):
+    current_user = app.storage.user.get('username')
+    
+    with SessionLocal() as db:
+        # 1. Znajdź lub stwórz stream
+        stream = db.query(StreamPath).filter(StreamPath.path_name == path_name).first()
+        if not stream:
+            stream = StreamPath(path_name=path_name, description=description, owner_username=current_user)
+            db.add(stream)
+        else:
+            stream.description = description
+
+        # 2. Pobierz obiekty użytkowników z bazy
+        publishers = db.query(User).filter(User.id.in_(publisher_ids)).all()
+        viewers = db.query(User).filter(User.id.in_(viewer_ids)).all()
+
+        # 3. Zsynchronizuj relacje (SQLAlchemy zajmie się tabelami asocjacyjnymi)
+        stream.authorized_publishers = publishers
+        stream.authorized_viewers = viewers
+        
+        db.commit()
+        
+        # 4. Wyświetl linki RTMP dla admina/operatora
+        rtmp_info = generate_rtmp_links(path_name, publishers)
+        return rtmp_info
+
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
@@ -291,6 +339,174 @@ def login_page():
         p.on('keydown.enter', do_login)
         
         ui.button('ZALOGUJ', on_click=do_login).classes('w-full mt-6 bg-blue-600 hover:bg-blue-700 text-white font-bold')
+def streams_management_interface(current_user, role):
+    with ui.column().classes('w-full max-w-6xl mx-auto p-4 gap-6'):
+        ui.label('KONFIGURACJA STRUMIENI WIDEO').classes('text-2xl font-black text-white tracking-tighter')
+
+        # --- FORMULARZ DODAWANIA/EDYCJI ---
+        with ui.card().classes('bg-zinc-900 border border-zinc-800 p-6 text-white w-full shadow-2xl'):
+            with ui.row().classes('w-full items-center gap-2 mb-4'):
+                ui.icon('add_circle', color='orange')
+                ui.label('REJESTRACJA NOWEGO DRONA').classes('text-lg font-bold text-orange-500')
+            
+            with ui.row().classes('w-full gap-4'):
+                s_path = ui.input('Ścieżka (ID w MediaMTX)', placeholder='np. mavic-3-koniakow').classes('flex-1').props('dark filled dense')
+                s_desc = ui.input('Opis / Cel misji', placeholder='np. Monitoring pożarowy').classes('flex-1').props('dark filled dense')
+
+            # Pobieranie użytkowników do list uprawnień
+            with SessionLocal() as db:
+                # Wykluczamy adminów z list (oni i tak wszystko widzą)
+                u_list = {u.id: u.username for u in db.query(User).filter(User.role != 'admin').all()}
+
+            with ui.row().classes('w-full gap-4 mt-2'):
+                p_sel = ui.select(u_list, multiple=True, label='PILOCI (Mogą nadawać RTMP)').classes('flex-1').props('dark filled dense')
+                v_sel = ui.select(u_list, multiple=True, label='WIDZOWIE (Widzą obraz w Gridzie)').classes('flex-1').props('dark filled dense')
+
+            # Kontener na linki RTMP
+            rtmp_box = ui.column().classes('w-full mt-4 p-4 bg-black border border-zinc-800 rounded hidden')
+
+            async def handle_save_stream():
+                if not s_path.value:
+                    ui.notify('Podaj ID drona!', color='negative')
+                    return
+                
+                # Zapis do bazy i generowanie linków
+                rtmp_data = await save_stream_with_permissions(
+                    s_path.value, s_desc.value, p_sel.value, v_sel.value
+                )
+                
+                # Wyświetlanie linków
+                rtmp_box.clear()
+                rtmp_box.remove_classes('hidden')
+                with rtmp_box:
+                    ui.label('LINKI DO KONFIGURACJI DRONA:').classes('text-[10px] font-bold text-orange-500 mb-2')
+                    for item in rtmp_data:
+                        with ui.row().classes('w-full items-center bg-zinc-900 p-2 rounded mb-1 border border-zinc-800'):
+                            ui.label(f"Pilot: {item['user']}").classes('text-xs font-mono w-32')
+                            ui.button(icon='content_copy', on_click=lambda l=item['link']: ui.run_javascript(f'navigator.clipboard.writeText("{l}")')) \
+                                .props('flat round size=sm color=orange')
+                            ui.label(item['link']).classes('text-[10px] text-zinc-500 truncate flex-1 ml-2')
+
+                ui.notify(f'Strumień {s_path.value} skonfigurowany!', color='positive')
+                stream_list_table.rows = get_stream_rows(current_user, role)
+
+            ui.button('ZAPISZ I GENERUJ POŚWIADCZENIA', on_click=handle_save_stream).classes('w-full mt-4 bg-orange-700 hover:bg-orange-600 font-bold')
+
+        # --- TABELA ISTNIEJĄCYCH STRUMIENI ---
+        ui.label('MOJE ZAREJESTROWANE STRUMIENIE').classes('text-sm font-bold text-zinc-500 mt-6 tracking-widest')
+        
+        def get_stream_rows(user, user_role):
+            with SessionLocal() as db:
+                query = db.query(StreamPath)
+                if user_role != 'admin':
+                    query = query.filter(StreamPath.owner_username == user)
+                return [{'path': s.path_name, 'desc': s.description, 'owner': s.owner_username} for s in query.all()]
+
+        columns = [
+            {'name': 'path', 'label': 'ID DRONA', 'field': 'path', 'align': 'left'},
+            {'name': 'desc', 'label': 'OPIS', 'field': 'desc', 'align': 'left'},
+            {'name': 'owner', 'label': 'WŁAŚCICIEL', 'field': 'owner', 'align': 'left'},
+            {'name': 'actions', 'label': 'AKCJE', 'field': 'actions', 'align': 'right'},
+        ]
+
+        stream_list_table = ui.table(columns=columns, rows=get_stream_rows(current_user, role), row_key='path').classes('w-full bg-zinc-950 border border-zinc-900').props('dark flat border')
+        
+        stream_list_table.add_slot('body-cell-actions', '''
+            <q-td :props="props">
+                <q-btn flat round icon="delete" color="red-8" size="sm" @click="$parent.$emit('del_stream', props.row.path)" />
+            </q-td>
+        ''')
+
+        async def delete_stream_req(path):
+            with SessionLocal() as db:
+                db.query(StreamPath).filter(StreamPath.path_name == path).delete()
+                db.commit()
+                ui.notify(f'Usunięto stream {path}')
+                stream_list_table.rows = get_stream_rows(current_user, role)
+
+        stream_list_table.on('del_stream', lambda e: delete_stream_req(e.args))
+def users_management_interface():
+    # Pobieramy dane aktualnego użytkownika z sesji
+    current_username = app.storage.user.get('username')
+
+    with ui.column().classes('w-full max-w-6xl mx-auto p-4 gap-8'):
+        ui.label('ZARZĄDZANIE UŻYTKOWNIKAMI').classes('text-2xl font-black text-white tracking-tighter')
+
+        with ui.row().classes('w-full items-stretch gap-6'):
+            # --- KARTA: TWOJE KONTO ---
+            with ui.card().classes('bg-zinc-900 border border-zinc-800 p-6 flex-1 text-white shadow-xl'):
+                ui.label('TWOJE KONTO').classes('text-lg font-bold mb-4 text-blue-400')
+                ui.label(f'Zalogowany jako: {current_username}').classes('text-xs text-zinc-500 mb-4 uppercase')
+                
+                new_pw = ui.input('Zmień hasło', password=True).classes('w-full').props('dark filled dense')
+                
+                async def update_my_pw():
+                    if not new_pw.value: return
+                    with SessionLocal() as db:
+                        u = db.query(User).filter(User.username == current_username).first()
+                        if u:
+                            u.password = new_pw.value
+                            db.commit()
+                            ui.notify('Hasło zaktualizowane!', color='positive')
+                            new_pw.value = ''
+                
+                ui.button('ZAPISZ HASŁO', on_click=update_my_pw).classes('w-full mt-4 bg-blue-700 font-bold')
+
+            # --- KARTA: DODAWANIE OPERATORA ---
+            with ui.card().classes('bg-zinc-900 border border-zinc-800 p-6 flex-1 text-white shadow-xl'):
+                ui.label('DODAJ NOWEGO UŻYTKOWNIKA').classes('text-lg font-bold mb-4 text-green-500')
+                u_name = ui.input('Login').classes('w-full').props('dark filled dense')
+                u_pass = ui.input('Hasło', password=True).classes('w-full').props('dark filled dense')
+                u_role = ui.select(['admin', 'operator', 'viewer'], value='viewer', label='Rola').classes('w-full').props('dark filled dense text-white')
+
+                async def create_user():
+                    if not u_name.value or not u_pass.value:
+                        ui.notify('Wypełnij pola!', color='negative')
+                        return
+                    with SessionLocal() as db:
+                        if db.query(User).filter(User.username == u_name.value).first():
+                            ui.notify('Użytkownik już istnieje!', color='negative')
+                            return
+                        db.add(User(username=u_name.value, password=u_pass.value, role=u_role.value))
+                        db.commit()
+                        ui.notify(f'Utworzono konto: {u_name.value}', color='positive')
+                        u_name.value = u_pass.value = ''
+                        user_table.rows = get_all_users()
+
+                ui.button('UTWÓRZ UŻYTKOWNIKA', on_click=create_user).classes('w-full mt-4 bg-zinc-800 text-green-500 font-bold border border-green-900/30')
+
+        # --- TABELA UŻYTKOWNIKÓW ---
+        ui.label('LISTA WSZYSTKICH KONTAKTÓW').classes('text-sm font-bold text-zinc-500 mt-6 tracking-widest')
+        
+        def get_all_users():
+            with SessionLocal() as db:
+                return [{'username': u.username, 'role': u.role} for u in db.query(User).all()]
+
+        columns = [
+            {'name': 'username', 'label': 'LOGIN', 'field': 'username', 'align': 'left', 'sortable': True},
+            {'name': 'role', 'label': 'ROLA', 'field': 'role', 'align': 'left'},
+            {'name': 'actions', 'label': 'AKCJE', 'field': 'actions', 'align': 'right'},
+        ]
+
+        user_table = ui.table(columns=columns, rows=get_all_users(), row_key='username').classes('w-full bg-zinc-950 border border-zinc-900').props('dark flat border')
+        
+        user_table.add_slot('body-cell-actions', '''
+            <q-td :props="props">
+                <q-btn flat round icon="delete_forever" color="red-8" size="sm" @click="$parent.$emit('del_user', props.row.username)" />
+            </q-td>
+        ''')
+
+        async def delete_user(target_user):
+            if target_user == current_username:
+                ui.notify('Nie możesz usunąć siebie!', color='negative')
+                return
+            with SessionLocal() as db:
+                db.query(User).filter(User.username == target_user).delete()
+                db.commit()
+                ui.notify(f'Użytkownik {target_user} usunięty')
+                user_table.rows = get_all_users()
+
+        user_table.on('del_user', lambda e: delete_user(e.args))
 
 @ui.page('/')
 def main_page():
@@ -304,139 +520,39 @@ def main_page():
             # Twoje logo 38kB z app/static/logo.png
             ui.image('/static/logo.png').classes('w-12 h-12')
             with ui.column().classes('gap-0'):
-                ui.label('Drone VMS').classes('text-xl font-black text-white leading-none')
-                ui.label('Ochotnicza Straż Pożarna Istebna-Centrum').classes('text-[10px] text-blue-500 font-bold tracking-widest uppercase')
+                ui.label('Drone VMS').classes('text-l font-black text-white leading-none')
+                ui.label('Ochotnicza Straż Pożarna Istebna-Centrum').classes('text-[12px] text-blue-500 font-bold tracking-widest uppercase')
 
         with ui.row().classes('items-center gap-3'):
-            ui.label(f"OPERATOR: {username.upper()}").classes('text-[10px] text-zinc-500 font-mono')
+            ui.label(f"OPERATOR: {username.upper()}").classes('text-[12px] text-zinc-500 font-mono')
             ui.button(icon='logout', on_click=lambda: (app.storage.user.clear(), ui.navigate.to('/login'))).props('flat round color=red-8')
-
-    # --- PASEK ZAKŁADEK ---
+    # 2. Zakładki (Tabs)
     with ui.tabs().classes('w-full bg-zinc-900 text-zinc-400 border-b border-zinc-800') as tabs:
-        t_grid = ui.tab('GRID', icon='grid_view')
+        t_grid = ui.tab('GRID OPERACYJNY', icon='grid_view')
         if user_role in ['admin', 'operator']:
             t_archive = ui.tab('ARCHIWUM', icon='history')
+            t_streams = ui.tab('STRUMIENIE', icon='videocam')
         if user_role == 'admin':
             t_admin = ui.tab('ZARZĄDZANIE', icon='settings')
 
-    # --- TREŚĆ ZAKŁADEK ---
+    # 3. Panele (Tab Panels)
     with ui.tab_panels(tabs, value=t_grid).classes('w-full bg-black text-zinc-300'):
         
-        # PANEL 1: GRID OPERACYJNY
         with ui.tab_panel(t_grid):
-            ui.label('WIDOK OPERACYJNY').classes('text-2xl font-black mb-4 text-white')
-            ui.label('Oczekiwanie na sygnał z drona...').classes('text-zinc-600 italic')
+            # Tu wstawimy za chwilę funkcję Live Gridu
+            ui.label('WIDOK LIVE').classes('text-2xl font-black')
 
-        # PANEL 2: ARCHIWUM
-        with ui.tab_panel(t_archive):
-            ui.label('ARCHIWUM NAGRAŃ').classes('text-2xl font-black mb-4 text-white')
-            ui.label('Brak zapisanych misji w bazie.').classes('text-zinc-600')
+        if user_role in ['admin', 'operator']:
+            with ui.tab_panel(t_archive):
+                ui.label('ARCHIWUM').classes('text-2xl font-black')
 
-        # PANEL 3: ZARZĄDZANIE (TYLKO ADMIN)
+            with ui.tab_panel(t_streams):
+                streams_management_interface(username, user_role)
+
         if user_role == 'admin':
             with ui.tab_panel(t_admin):
-                with ui.column().classes('w-full max-w-6xl mx-auto p-4 gap-8'):
-                    
-                    # Nagłówek Zarządzania
-                    with ui.row().classes('w-full items-center justify-between border-b border-zinc-800 pb-4'):
-                        ui.label('ADMINISTRACJA SYSTEMEM').classes('text-2xl font-black text-white tracking-tighter')
-                        ui.badge('UPRAWNIENIA: ADMINISTRATOR', color='blue-9').classes('px-4 py-1')
+                users_management_interface()
 
-                    # Formularze
-                    with ui.row().classes('w-full items-stretch gap-6'):
-                        
-                        # Karta: Zmiana własnego hasła
-                        with ui.card().classes('bg-zinc-900 border border-zinc-800 p-6 flex-1 text-white shadow-xl'):
-                            ui.label('TWOJE KONTO').classes('text-lg font-bold mb-4 text-blue-400')
-                            new_my_pass = ui.input('Nowe hasło administratora', password=True).classes('w-full').props('dark filled dense')
-                            
-                            async def update_own_password():
-                                if not new_my_pass.value:
-                                    ui.notify('Wpisz nowe hasło!', color='warning')
-                                    return
-                                with SessionLocal() as db:
-                                    u = db.query(User).filter(User.username == username).first()
-                                    if u:
-                                        u.password = new_my_pass.value
-                                        db.commit()
-                                        ui.notify('Hasło zmienione pomyślnie', color='positive')
-                                        new_my_pass.value = ''
-                            
-                            ui.button('ZAPISZ HASŁO', on_click=update_own_password).classes('w-full mt-4 bg-blue-700 font-bold')
-
-                        # Karta: Dodawanie użytkownika
-                        with ui.card().classes('bg-zinc-900 border border-zinc-800 p-6 flex-1 text-white shadow-xl'):
-                            ui.label('DODAJ UŻYTKOWNIKA').classes('text-lg font-bold mb-4 text-green-500')
-                            add_n = ui.input('Login').classes('w-full').props('dark filled dense')
-                            add_p = ui.input('Hasło', password=True).classes('w-full').props('dark filled dense')
-                            add_r = ui.select(['admin', 'operator', 'viewer'], value='viewer', label='Rola').classes('w-full').props('dark filled dense text-white')
-                            async def handle_add_user():
-                                if not add_n.value or not add_p.value:
-                                    ui.notify('Uzupełnij pola!', color='negative')
-                                    return
-                                with SessionLocal() as db:
-                                    if db.query(User).filter(User.username == add_n.value).first():
-                                        ui.notify('Użytkownik już istnieje!', color='negative')
-                                        return
-                                    db.add(User(username=add_n.value, password=add_p.value, role=add_r.value))
-                                    db.commit()
-                                    ui.notify(f'Dodano operatora: {add_n.value}', color='positive')
-                                    add_n.value = add_p.value = ''
-                                    user_table.rows = get_user_data()
-
-                            ui.button('UTWÓRZ KONTO', on_click=handle_add_user).classes('w-full mt-4 bg-zinc-800 text-green-500 font-bold')
-
-                    # Tabela użytkowników
-                    ui.label('ZARZĄDZANIE OPERATORAMI').classes('text-sm font-bold text-zinc-500 tracking-widest mt-8 mb-2')
-                    
-                    def get_user_data():
-                        with SessionLocal() as db:
-                            return [{'username': u.username, 'role': u.role} for u in db.query(User).all()]
-
-                    columns = [
-                        {'name': 'username', 'label': 'UŻYTKOWNIK', 'field': 'username', 'align': 'left', 'sortable': True},
-                        {'name': 'role', 'label': 'ROLA', 'field': 'role', 'align': 'left'},
-                        {'name': 'actions', 'label': 'OPERACJE', 'field': 'actions', 'align': 'right'},
-                    ]
-
-                    user_table = ui.table(columns=columns, rows=get_user_data(), row_key='username').classes('w-full bg-zinc-950 border border-zinc-900 shadow-2xl').props('dark flat border')
-                    
-                    user_table.add_slot('body-cell-actions', '''
-                        <q-td :props="props">
-                            <q-btn flat round icon="delete_forever" color="red-8" size="sm" @click="$parent.$emit('delete_req', props.row.username)" />
-                        </q-td>
-                    ''')
-
-                    async def handle_delete_user(u_to_del):
-                        if u_to_del == username:
-                            ui.notify('Nie możesz usunąć siebie!', color='negative')
-                            return
-                        with SessionLocal() as db:
-                            db.query(User).filter(User.username == u_to_del).delete()
-                            db.commit()
-                            ui.notify(f'Usunięto {u_to_del}', color='warning')
-                            user_table.rows = get_user_data()
-
-                    user_table.on('delete_req', lambda e: handle_delete_user(e.args))
-                    # Przykładowy fragment UI w Zarządzaniu:
-                    with ui.card().classes('bg-zinc-900 text-white border border-zinc-800 p-6'):
-                        ui.label('KONFIGURACJA UPRAWNIEŃ DRONA').classes('text-orange-500 font-bold')
-    
-                     # Pobieramy wszystkich użytkowników z bazy
-                        with SessionLocal() as db:
-                            all_users = {u.id: u.username for u in db.query(User).all()}
-
-                        p_select = ui.select(all_users, multiple=True, label='PILOCI (NADAWANIE)').classes('w-full').props('dark filled')
-                           v_select = ui.select(all_users, multiple=True, label='WIDZOWIE (PODGLĄD)').classes('w-full').props('dark filled')
-
-                        async def save_permissions(path_name):
-                            with SessionLocal() as db:
-                                stream = db.query(StreamPath).filter(StreamPath.path_name == path_name).first()
-                                # Czyścimy stare i dodajemy nowe relacje na podstawie wybranych ID
-                                stream.authorized_publishers = db.query(User).filter(User.id.in_(p_select.value)).all()
-                                stream.authorized_viewers = db.query(User).filter(User.id.in_(v_select.value)).all()
-                                db.commit()
-                                ui.notify('Uprawnienia zaktualizowane!')
 
 def create_default_user():
     db = SessionLocal()
