@@ -32,6 +32,24 @@ Base = declarative_base()
 engine = create_engine(DB_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
 
+def create_default_user():
+    db = SessionLocal()
+    # Sprawdzamy czy jest jakikolwiek admin
+    admin = db.query(User).filter(User.username == "admin").first()
+    if not admin:
+        new_admin = User(
+            username="admin", 
+            password="123", # Zmień po pierwszym zalogowaniu!
+            role="admin"
+        )
+        db.add(new_admin)
+        db.commit()
+        print("STWORZONO DOMYŚLNEGO ADMINA: admin / 123")
+    db.close()
+
+# Wywołaj to przed ui.run()
+create_default_user()
+
 # Tabela asocjacyjna Uprawnień (Many-to-Many)
 stream_permissions = Table('stream_permissions', Base.metadata,
     Column('user_id', String, ForeignKey('users.username', ondelete="CASCADE")),

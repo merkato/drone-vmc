@@ -21,6 +21,8 @@ services:
       - "1935:1935"      # RTMP dla dronów
       - "8554:8554"      # RTSP dla kamer IP
       - "8000:8000/udp"  # WebRTC UDP Mux
+      - "8889:8889"  # WebRTC (podgląd w przeglądarce)
+      - "9997:9997"
     volumes:
       - ./config/mediamtx.yml:/mediamtx.yml:ro
       - recordings_data:/recordings

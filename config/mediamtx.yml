@@ -9,6 +9,9 @@ pathDefaults:
   recordFormat: fmp4
   recordPartDuration: 10m
 
+api: yes
+apiAddress: :9997
+
 # WebRTC
 webrtc: yes
 webrtcAddress: :8889
