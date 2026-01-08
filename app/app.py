@@ -25,7 +25,6 @@ RECORDINGS_DIR = Path("/recordings")
 RECORDINGS_DIR.mkdir(exist_ok=True)
 app.add_static_files('/download', str(RECORDINGS_DIR))
 app.add_static_files('/static', 'static')
-app.config.max_http_buffer_size = 20_000_000
 
 # --- BAZA DANYCH (SQLAlchemy) ---
 DB_URL = "sqlite:///./streaming_v3.db"
