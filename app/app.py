@@ -156,18 +156,21 @@ def is_authenticated():
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    # Puszczamy systemowe ścieżki NiceGUI (kluczowe dla WebSocketów!)
-    if request.url.path.startswith('/_nicegui'):
-        return await call_next(request)
+    path = request.url.path
     
-    # Reszta wyjątków (login, api, statyczne)
-    if request.url.path in ['/login', '/auth'] or request.url.path.startswith('/static'):
+    # DEBUG: Zobaczymy w logach co się dzieje
+    is_authenticated = app.storage.user.get('authenticated', False)
+    
+    # Sprawdzamy wyjątki
+    if path.startswith('/_nicegui') or path.startswith('/static') or path in ['/login', '/auth']:
+        print(f"[DEBUG] ALLOWED: {path} (Auth: {is_authenticated})")
         return await call_next(request)
 
-    # Ochrona dashboardu
-    if not app.storage.user.get('authenticated', False):
+    if not is_authenticated:
+        print(f"[DEBUG] REDIRECTING: {path} -> /login")
         return responses.RedirectResponse('/login')
-        
+
+    print(f"[DEBUG] PASSING: {path}")
     return await call_next(request)
 
 @ui.page('/login')
