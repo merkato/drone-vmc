@@ -36,7 +36,7 @@ services:
       - DOMAIN=${DOMAIN}
       - STORAGE_SECRET=${STORAGE_SECRET}
     volumes:
-      - ./streaming_v3.db:/app/streaming_v3.db
+      - ./vms_db.db:/app/vms_db.db
       - ./credentials.json:/app/credentials.json # Klucz do Google Drive
       - recordings_data:/recordings
     restart: always
