@@ -646,7 +646,7 @@ def live_grid_interface():
         live_grid_content()
         
         # Automatyczne odświeżanie statusów LIVE i listy strumieni co 5 sekund
-        ui.timer(5.0, live_grid_content.refresh)
+        ui.timer(30.0, live_grid_content.refresh)
 
 @ui.page('/')
 def main_page():
