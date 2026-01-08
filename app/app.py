@@ -572,17 +572,21 @@ def users_management_interface():
         ''')
         user_table.on('del', lambda e: delete_user_logic(e.args, user_table, get_users))
 
+# --- LOGIKA GRIDU OPERACYJNEGO ---
+
 @ui.refreshable
 def live_grid_content():
+    """Wewnętrzna część gridu, która się odświeża co 5 sekund."""
     u_id = app.storage.user.get('user_id')
     u_role = app.storage.user.get('role')
 
+    # Pobieramy statusy LIVE z MediaMTX
     active_paths = get_active_streams()
 
     with SessionLocal() as db:
-        # POBIERAMY PEŁNY OBIEKT UŻYTKOWNIKA (potrzebujemy hasła)
         current_u = db.query(User).filter(User.id == u_id).first()
         if not current_u:
+            ui.label('Błąd sesji użytkownika. Zaloguj się ponownie.').classes('text-red-500')
             return
 
         if u_role == 'admin':
@@ -592,38 +596,35 @@ def live_grid_content():
 
     if not my_streams:
         with ui.column().classes('w-full items-center py-20 border-2 border-dashed border-zinc-900 rounded-xl'):
-            ui.icon('videocam_off', size='lg').classes('text-zinc-800')
+            ui.icon('videocam_off', size='lg', color='grey-9')
             ui.label('Brak przypisanych strumieni').classes('text-zinc-600 italic')
         return
 
+    # GRID: 1 kolumna na mobile, 4 na desktopie
     with ui.grid(columns='1 md:2 lg:4').classes('w-full gap-4'):
         for s in my_streams:
             is_live = s.path_name in active_paths
             
-            # --- KLUCZOWA POPRAWKA: DOPISANIE USER I PASSWORD DO URL ---
-            # Dzięki temu iFrame zaloguje się automatycznie "pod spodem"
-            stream_url = (
-                f"https://stream.giswgorach.pl/{s.path_name}"
-                f"?user={current_u.username}&password={current_u.password}"
-            )
+            # Automatyczne logowanie do iFrame
+            stream_url = f"https://stream.giswgorach.pl/{s.path_name}?user={current_u.username}&password={current_u.password}"
 
             with ui.card().classes('bg-zinc-900 border border-zinc-800 p-0 overflow-hidden shadow-2xl relative'):
+                # Pasek tytułowy
                 with ui.row().classes('w-full p-2 items-center justify-between bg-zinc-950 border-b border-zinc-800'):
                     with ui.row().classes('items-center gap-2'):
                         if is_live:
                             ui.icon('fiber_manual_record', color='red').classes('animate-pulse')
-                            ui.label('LIVE').classes('text-[10px] font-black text-red-500 mr-2')
+                            ui.label('LIVE').classes('text-[10px] font-black text-red-500')
                         else:
                             ui.icon('fiber_manual_record', color='zinc-700')
-                            ui.label('OFFLINE').classes('text-[10px] font-bold text-zinc-600 mr-2')
+                            ui.label('OFFLINE').classes('text-[10px] font-bold text-zinc-600')
                         
                         ui.label(s.path_name.upper()).classes('text-[10px] font-bold text-zinc-300 font-mono truncate')
                     
-                    # Link do fullscreen też musi mieć poświadczenia
-                    ui.button(icon='fullscreen', on_click=lambda url=stream_url: ui.navigate.to(url, new_tab=True)) \
-                        .props('flat round size=sm color=zinc-500')
+                    ui.button(icon='open_in_new', on_click=lambda url=stream_url: ui.navigate.to(url, new_tab=True)) \
+                        .props('flat round size=sm color=blue-500')
 
-                # Okno Wideo z przekazanymi danymi logowania
+                # Okno Wideo
                 ui.html(f'''
                     <div style="position:relative; padding-top:56.25%; background:#000;">
                         <iframe src="{stream_url}" 
@@ -633,8 +634,18 @@ def live_grid_content():
                     </div>
                 ''', sanitize=False).classes('w-full')
 
+                # Stopka
                 with ui.row().classes('w-full p-2 bg-zinc-900/50'):
                     ui.label(s.description or "Brak opisu").classes('text-[9px] text-zinc-500 truncate')
+
+def live_grid_interface():
+    """Tę funkcję wywołuje main_page w zakładce GRID OPERACYJNY."""
+    with ui.column().classes('w-full p-4 bg-black'):
+        # Inicjalne wywołanie zawartości
+        live_grid_content()
+        
+        # Automatyczne odświeżanie statusów LIVE i listy strumieni co 5 sekund
+        ui.timer(5.0, live_grid_content.refresh)
 
 @ui.page('/')
 def main_page():
