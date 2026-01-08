@@ -32,6 +32,9 @@ Base = declarative_base()
 engine = create_engine(DB_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
 
+# Zwiększamy bufor dla wiadomości WebSocket (np. do 20 MB)
+globals.socket_io_config['max_http_buffer_size'] = 20000000
+
 # Tabela asocjacyjna Uprawnień (Many-to-Many)
 stream_permissions = Table('stream_permissions', Base.metadata,
     Column('user_id', String, ForeignKey('users.username', ondelete="CASCADE")),

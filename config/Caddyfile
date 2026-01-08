@@ -1,6 +1,11 @@
 # Panel Zarządzania
 dashboard.giswgorach.pl {
-    reverse_proxy drone_app:8080
+    reverse_proxy drone_app:8080{
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
 }
 
 # WebRTC i API MediaMTX
