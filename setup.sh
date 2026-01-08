@@ -13,9 +13,6 @@ DOMAIN=$MY_DOMAIN
 STORAGE_SECRET=$MY_SECRET
 EOF
 
-# Podstawowe logo (placeholder)
-curl -o static/logo.png https://via.placeholder.com/150/000000/FFFFFF?text=DRONE+CORE
-
 # Zatrzymanie w razie błędu
 set -e
 
