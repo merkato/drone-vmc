@@ -306,8 +306,8 @@ async def dashboard():
         with ui.row().classes('items-center gap-4'):
             ui.image('/static/logo.png').classes('w-12 h-12 border border-zinc-700 p-1 bg-zinc-900 rounded')
             with ui.column().classes('gap-0'):
-                ui.label(cfg.institution_name if cfg else "INSTYTUT").classes('text-[10px] tracking-widest text-zinc-500 font-bold uppercase')
-                ui.label(cfg.unit_name if cfg else "JEDNOSTKA").classes('text-xl font-black text-white uppercase')
+                ui.label(cfg.institution_name if cfg else "OSP Istebns-Centrum").classes('text-[10px] tracking-widest text-zinc-500 font-bold uppercase')
+                ui.label(cfg.unit_name if cfg else "Drone Team").classes('text-xl font-black text-white uppercase')
         
         with ui.row().classes('items-center gap-6'):
             sys = get_sys_resources()
@@ -335,89 +335,105 @@ with ui.tab_panels(tabs, value=t_grid).classes('w-full bg-black text-zinc-300'):
         # Tutaj logika skanowania folderu i ui.video (jak omawialiśmy wcześniej)
         ui.label('Moduł archiwum gotowy do przeglądania plików.').classes('italic text-zinc-600')
 
-    # --- PANEL 3: ZARZĄDZANIE (Tylko dla Admina) ---
-    if user_role == 'admin':
+   if user_role == 'admin':
         with ui.tab_panel(t_admin):
-            with ui.column().classes('w-full max-w-5xl mx-auto p-4 gap-6'):
+            with ui.column().classes('w-full max-w-6xl mx-auto p-4 gap-8'):
                 
-                # Nagłówek sekcji
-                ui.label('Administracja systemem').classes('text-2xl font-black text-white')
+                # --- NAGŁÓWEK SEKCJI ---
+                with ui.row().classes('w-full items-center justify-between border-b border-zinc-800 pb-4'):
+                    ui.label('ADMINISTRACJA SYSTEMEM').classes('text-2xl font-black text-white tracking-tighter')
+                    ui.badge('UPRAWNIENIA: ADMINISTRATOR', color='blue-9').classes('px-4 py-1')
 
                 with ui.row().classes('w-full items-stretch gap-6'):
                     
-                    # KARTA: Zmiana własnego hasła
-                    with ui.card().classes('bg-zinc-900 border border-zinc-800 p-6 flex-1 text-white'):
-                        ui.label('Zmień swoje hasło').classes('text-lg font-bold text-blue-400 mb-2')
-                        new_pass = ui.input('Nowe hasło', password=True).classes('w-full').props('dark filled')
+                    # --- KARTA 1: TWOJE KONTO (Zmiana własnego hasła) ---
+                    with ui.card().classes('bg-zinc-900 border border-zinc-800 p-6 flex-1 text-white shadow-xl'):
+                        with ui.row().classes('items-center gap-2 mb-4'):
+                            ui.icon('manage_accounts', size='sm').classes('text-blue-500')
+                            ui.label('TWOJE KONTO').classes('text-lg font-bold')
                         
-                        async def update_pw():
+                        ui.label(f'Zalogowany jako: {app.storage.user.get("username")}').classes('text-xs text-zinc-500 mb-4 uppercase')
+                        
+                        new_my_pass = ui.input('Nowe hasło administratora', password=True).classes('w-full').props('dark filled dense')
+                        
+                        async def update_own_password():
+                            if not new_my_pass.value:
+                                ui.notify('Wpisz nowe hasło!', color='warning')
+                                return
                             with SessionLocal() as db:
                                 u = db.query(User).filter(User.username == app.storage.user['username']).first()
                                 if u:
-                                    u.password = new_pass.value
+                                    u.password = new_my_pass.value
                                     db.commit()
-                                    ui.notify('Hasło zaktualizowane!', color='positive')
-                                    new_pass.value = ''
+                                    ui.notify('Twoje hasło zostało zmienione', color='positive', icon='check')
+                                    new_my_pass.value = ''
+
+                        ui.button('ZAPISZ NOWE HASŁO', on_click=update_own_password).classes('w-full mt-4 bg-blue-700 hover:bg-blue-600 font-bold')
+
+                    # --- KARTA 2: DODAWANIE OPERATORA ---
+                    with ui.card().classes('bg-zinc-900 border border-zinc-800 p-6 flex-1 text-white shadow-xl'):
+                        with ui.row().classes('items-center gap-2 mb-4'):
+                            ui.icon('person_add', size='sm').classes('text-green-500')
+                            ui.label('DODAJ UŻYTKOWNIKA').classes('text-lg font-bold')
                         
-                        ui.button('ZAKTUALIZUJ', on_click=update_pw).classes('w-full mt-4 bg-blue-600')
+                        add_n = ui.input('Nazwa użytkownika (Login)').classes('w-full').props('dark filled dense')
+                        add_p = ui.input('Hasło początkowe', password=True).classes('w-full').props('dark filled dense')
+                        add_r = ui.select(['admin', 'operator'], value='operator', label='Rola systemowa').classes('w-full').props('dark filled dense text-white')
 
-                    # KARTA: Dodawanie użytkownika
-                    with ui.card().classes('bg-zinc-900 border border-zinc-800 p-6 flex-1 text-white'):
-                        ui.label('Dodaj operatora').classes('text-lg font-bold text-green-400 mb-2')
-                        n_user = ui.input('Login').classes('w-full').props('dark filled')
-                        n_pass = ui.input('Hasło', password=True).classes('w-full').props('dark filled')
-                        n_role = ui.select(['admin', 'operator'], value='operator').classes('w-full').props('dark filled text-white')
-
-                        async def add_user():
-                            if not n_user.value or not n_pass.value:
-                                ui.notify('Wypełnij pola!', color='negative')
+                        async def handle_add_user():
+                            if not add_n.value or not add_p.value:
+                                ui.notify('Uzupełnij wszystkie pola!', color='negative')
                                 return
                             with SessionLocal() as db:
-                                if db.query(User).filter(User.username == n_user.value).first():
-                                    ui.notify('Użytkownik już istnieje!', color='negative')
+                                if db.query(User).filter(User.username == add_n.value).first():
+                                    ui.notify('Taki użytkownik już istnieje!', color='negative')
                                     return
-                                db.add(User(username=n_user.value, password=n_pass.value, role=n_role.value))
+                                db.add(User(username=add_n.value, password=add_p.value, role=add_r.value))
                                 db.commit()
-                                ui.notify(f'Dodano: {n_user.value}', color='positive')
-                                n_user.value = n_pass.value = ''
-                                # Odświeżamy tabelę poniżej
-                                user_table.rows = get_user_rows()
+                                ui.notify(f'Dodano użytkownika: {add_n.value}', color='positive', icon='person_add')
+                                add_n.value = add_p.value = ''
+                                # Odświeżenie tabeli
+                                user_table.rows = get_user_data()
 
-                        ui.button('DODAJ UŻYTKOWNIKA', on_click=add_user).classes('w-full mt-4 bg-green-700 text-white')
+                        ui.button('UTWÓRZ KONTO', on_click=handle_add_user).classes('w-full mt-4 bg-zinc-800 hover:bg-zinc-700 text-green-500 font-bold border border-green-900/30')
 
-                # TABELA UŻYTKOWNIKÓW
-                ui.label('Aktywni użytkownicy').classes('text-xl font-bold text-white mt-4')
-                
-                def get_user_rows():
-                    with SessionLocal() as db:
-                        return [{'username': u.username, 'role': u.role} for u in db.query(User).all()]
+                # --- SEKCJA: LISTA UŻYTKOWNIKÓW ---
+                with ui.column().classes('w-full mt-4'):
+                    ui.label('ZARZĄDZANIE OPERATORAMI').classes('text-sm font-bold text-zinc-500 tracking-widest mb-2')
+                    
+                    def get_user_data():
+                        with SessionLocal() as db:
+                            return [{'username': u.username, 'role': u.role} for u in db.query(User).all()]
 
-                columns = [
-                    {'name': 'username', 'label': 'LOGIN', 'field': 'username', 'align': 'left', 'sortable': True},
-                    {'name': 'role', 'label': 'ROLA', 'field': 'role', 'align': 'left'},
-                    {'name': 'actions', 'label': 'AKCJE', 'field': 'actions', 'align': 'right'},
-                ]
+                    columns = [
+                        {'name': 'username', 'label': 'UŻYTKOWNIK', 'field': 'username', 'align': 'left', 'sortable': True},
+                        {'name': 'role', 'label': 'ROLA', 'field': 'role', 'align': 'left'},
+                        {'name': 'actions', 'label': 'OPERACJE', 'field': 'actions', 'align': 'right'},
+                    ]
 
-                user_table = ui.table(columns=columns, rows=get_user_rows(), row_key='username').classes('w-full bg-zinc-900 border border-zinc-800').props('dark flat')
-                
-                # Slot na przycisk usuwania
-                user_table.add_slot('body-cell-actions', '''
-                    <q-td :props="props">
-                        <q-btn flat round icon="delete" color="red" @click="$parent.$emit('delete_user', props.row.username)" />
-                    </q-td>
-                ''')
+                    user_table = ui.table(columns=columns, rows=get_user_data(), row_key='username').classes('w-full bg-zinc-950 border border-zinc-900 shadow-2xl').props('dark flat border')
+                    
+                    # Dodanie przycisku usuwania w tabeli
+                    user_table.add_slot('body-cell-actions', '''
+                        <q-td :props="props">
+                            <q-btn flat round icon="delete_forever" color="red-8" size="sm" @click="$parent.$emit('delete_req', props.row.username)">
+                                <q-tooltip class="bg-red-9">USUŃ UŻYTKOWNIKA</q-tooltip>
+                            </q-btn>
+                        </q-td>
+                    ''')
 
-                async def handle_delete(username):
-                    if username == app.storage.user['username']:
-                        ui.notify('Nie możesz usunąć siebie!', color='negative')
-                        return
-                    with SessionLocal() as db:
-                        db.query(User).filter(User.username == username).delete()
-                        db.commit()
-                        ui.notify(f'Usunięto {username}')
-                        user_table.rows = get_user_rows()
+                    async def handle_delete_user(username_to_del):
+                        if username_to_del == app.storage.user['username']:
+                            ui.notify('Błąd: Nie możesz usunąć własnego konta administratora!', color='negative', icon='report')
+                            return
+                        
+                        with SessionLocal() as db:
+                            db.query(User).filter(User.username == username_to_del).delete()
+                            db.commit()
+                            ui.notify(f'Użytkownik {username_to_del} został usunięty', color='warning', icon='delete')
+                            user_table.rows = get_user_data()
 
-                user_table.on('delete_user', lambda e: handle_delete(e.args))
+                    user_table.on('delete_req', lambda e: handle_delete_user(e.args))
 
 def create_default_user():
     db = SessionLocal()
