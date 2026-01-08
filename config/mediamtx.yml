@@ -1,20 +1,21 @@
-# mediamtx.yml
-paths:
-  all:
-    authMethod: external
-    authExternalAddress: http://drone_app:8080/auth
-    authInternal: no
-    record: no # Zarządzane przez app.py PATCH
-    recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S
-    recordFormat: mp4
-    recordPartDuration: 10m
-    recordDeleteAfter: 0s # Retencja zarządzana przez Python
+# --- USTAWIENIA GLOBALNE ---
+# W nowej wersji adres URL autoryzacji ląduje na samym szczycie
+externalAuthenticationURL: http://drone_app:8080/auth
 
-rtsp: yes
-rtmp: yes
-api: yes
-apiAddress: :9997
+# Globalne parametry zapisu
+recordFormat: fmp4
+recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S
+recordPartDuration: 10m
+
+# WebRTC
 webrtc: yes
 webrtcAddress: :8889
 webrtcICEUDP: yes
+# Tutaj wpisz swoją domenę (bez http/https)
 webrtcServerHostname: stream.giswgorach.pl
+
+# --- KONFIGURACJA ŚCIEŻEK ---
+paths:
+  all:
+    # Sekcja nie jest pusta - zawiera flagi sterujące
+    record: no # Domyślnie wyłączone, app.py włączy to dynamicznie
