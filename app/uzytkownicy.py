@@ -1,4 +1,4 @@
-from nicegui import ui
+from nicegui import ui, app
 from models import SessionLocal, User
 import sqlalchemy
 
@@ -103,7 +103,7 @@ def user_management_interface():
         
         # PANEL DODAWANIA UŻYTKOWNIKA
         with ui.card().classes('bg-zinc-900 border border-zinc-800 p-6 w-full shadow-lg'):
-            ui.label('DODAJ NOWEGO PRACOWNIKA').classes('text-orange-500 font-bold mb-4 tracking-widest')
+            ui.label('DODAJ NOWEGO UŻYTKOWNIKA').classes('text-orange-500 font-bold mb-4 tracking-widest')
             with ui.row().classes('w-full items-end gap-4'):
                 new_username = ui.input('Login / Nazwisko').classes('flex-grow').props('dark filled')
                 new_password = ui.input('Hasło dostępu').classes('flex-grow').props('dark filled password-toggle')
@@ -151,3 +151,50 @@ def user_management_interface():
             ui.button('ODŚWIEŻ LISTĘ', icon='refresh', on_click=lambda: setattr(user_table, 'rows', get_users_from_db())) \
                 .props('flat dense color=zinc-600 text-color=zinc-600') \
                 .classes('text-[10px]')
+
+def create_default_user():
+    """Tworzy domyślnego administratora, jeśli baza jest pusta."""
+    with SessionLocal() as db:
+        # Sprawdzamy, czy w systemie jest jakikolwiek admin
+        admin = db.query(User).filter(User.role == "admin").first()
+        if not admin:
+            new_admin = User(
+                username="admin", 
+                password="123", # Zmień po pierwszym zalogowaniu!
+                role="admin"
+            )
+            db.add(new_admin)
+            db.commit()
+            print(">>> [BOOTSTRAP] STWORZONO DOMYŚLNEGO ADMINA: admin / 123")
+
+def is_authenticated() -> bool:
+    """
+    Kompleksowy strażnik sesji. 
+    Sprawdza czy użytkownik jest zalogowany i czy sesja zawiera wymagane dane.
+    """
+    return all([
+        app.storage.user.get('authenticated', False),
+        app.storage.user.get('username') is not None,
+        app.storage.user.get('role') is not None,
+        app.storage.user.get('user_id') is not None
+    ])
+
+def change_my_password_ui(username):
+    """Mały panel do zmiany hasła przez zalogowanego użytkownika."""
+    with ui.card().classes('bg-zinc-900 border border-zinc-800 p-6 w-full shadow-lg'):
+        ui.label('ZMIANA MOJEGO HASŁA').classes('text-blue-400 font-bold mb-4')
+        with ui.row().classes('w-full items-end gap-4'):
+            new_pass = ui.input('Nowe hasło').props('dark filled password-toggle').classes('flex-grow')
+            
+            async def update_pass():
+                if not new_pass.value:
+                    return ui.notify('Wpisz nowe hasło!', color='warning')
+                with SessionLocal() as db:
+                    user = db.query(User).filter(User.username == username).first()
+                    if user:
+                        user.password = new_pass.value
+                        db.commit()
+                        ui.notify('Hasło zostało zmienione', color='positive')
+                        new_pass.value = ''
+
+            ui.button('AKTUALIZUJ', on_click=update_pass).props('color=blue')
