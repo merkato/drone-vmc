@@ -79,7 +79,9 @@ def upload_to_gdrive(file_path, folder_id):
     from google.oauth2 import service_account
     from googleapiclient.http import MediaFileUpload
     try:
-        if not os.path.exists('credentials.json'): return False
+        if not os.path.exists('credentials.json'): 
+            logging.warning("Brak credentials.json - pomijam wysyłanie do chmury.")
+            return False
         creds = service_account.Credentials.from_service_account_file('credentials.json', scopes=['https://www.googleapis.com/auth/drive.file'])
         service = build('drive', 'v3', credentials=creds)
         file_metadata = {'name': file_path.name, 'parents': [folder_id] if folder_id else []}
