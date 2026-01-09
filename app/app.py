@@ -959,7 +959,7 @@ def main_page():
 
         if user_role == 'admin':
             with ui.tab_panel(t_admin):
-                users_management_interface()
+                user_management_interface()
 
 
 def create_default_user():
