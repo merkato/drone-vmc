@@ -171,7 +171,6 @@ def main_page():
     # 2. Jednokrotne pobranie danych (wiemy, że istnieją dzięki is_authenticated)
     username = app.storage.user.get('username')
     role = app.storage.user.get('role')
-
     # 3. Stylizacja globalna (raz, konkretnie)
     ui.query('body').style('background-color: #000000;')
     ui.query('.q-page').style('background-color: #000000;')
@@ -222,7 +221,11 @@ def main_page():
                     user_management_interface()
 
 # Wykonaj retencję danych nagrań na dysk GDrive co 5 dni
-ui.timer(432000.0, run_retention_task)
+def handle_startup():
+    # Uruchamiamy timer, który będzie tykał w tle serwera
+    ui.timer(3600.0, run_retention_task) 
+
+app.on_startup(handle_startup)
 
 # START SYSTEMU
 if __name__ in {"__main__", "__mp_main__"}:
