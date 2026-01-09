@@ -12,6 +12,7 @@ from collections import defaultdict
 from datetime import datetime
 
 from fastapi import Request, HTTPException, Response, responses
+from fastapi.staticfiles import StaticFiles
 from nicegui import app, ui
 from sqlalchemy import create_engine, Column, String, Boolean, Table, ForeignKey, Integer, Text
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
@@ -26,6 +27,10 @@ RECORDINGS_DIR = Path("/recordings")
 # Inicjalizacja folderów i plików statycznych
 RECORDINGS_DIR.mkdir(exist_ok=True)
 app.add_static_files('/download', str(RECORDINGS_DIR))
+
+if not os.path.exists('/recordings'):
+    os.makedirs('/recordings', exist_ok=True)
+app.mount("/recordings", StaticFiles(directory="/recordings"), name="recordings")
 app.add_static_files('/static', 'static')
 
 # --- BAZA DANYCH (SQLAlchemy) ---
@@ -601,6 +606,140 @@ def streams_management_interface(username, role):
         stream_table.on('show_rtmp', lambda e: fetch_and_show_links(e.args))
         stream_table.on('delete_st', lambda e: delete_stream_logic(e.args))
 
+def archive_interface(username, role):
+    """
+    Interfejs przeglądania nagrań wideo.
+    - Skanuje folder /recordings
+    - Pozwala każdemu oglądać
+    - Pozwala tylko adminowi usuwać
+    """
+
+    def get_recordings_list():
+        """Skanuje system plików i zwraca listę nagrań."""
+        base_path = '/recordings'
+        recordings = []
+        
+        if not os.path.exists(base_path):
+            return []
+
+        # Przeszukujemy foldery: /recordings/ścieżka/plik.mp4
+        for root, dirs, files in os.walk(base_path):
+            for file in files:
+                if file.endswith(('.mp4', '.m4v')):
+                    full_path = os.path.join(root, file)
+                    relative_path = os.path.relpath(full_path, base_path)
+                    
+                    stats = os.stat(full_path)
+                    size_mb = round(stats.st_size / (1024 * 1024), 2)
+                    ctime = datetime.fromtimestamp(stats.st_ctime).strftime('%Y-%m-%d %H:%M:%S')
+                    
+                    # Wyciągamy nazwę drona z nazwy folderu
+                    drone_name = relative_path.split(os.sep)[0]
+                    
+                    recordings.append({
+                        'id': relative_path,
+                        'drone': drone_name,
+                        'filename': file,
+                        'date': ctime,
+                        'size': f"{size_mb} MB",
+                        'path': f"/recordings/{relative_path}" # URL do odtwarzacza
+                    })
+        
+        # Sortujemy od najnowszych
+        return sorted(recordings, key=lambda x: x['date'], reverse=True)
+
+    with ui.column().classes('w-full max-w-6xl mx-auto p-4 gap-4'):
+        ui.label('ARCHIWUM NAGRAŃ OPERACYJNYCH').classes('text-xl font-black text-orange-500 mb-4')
+
+        # --- ODTWARZACZ WIDEO (Ukryty domyślnie) ---
+        video_container = ui.card().classes('w-full bg-black p-0 overflow-hidden border border-orange-900 shadow-2xl')
+        video_container.set_visibility(False)
+        
+        def close_player():
+            video_container.clear()
+            video_container.set_visibility(False)
+
+        def play_video(path, title):
+            video_container.clear()
+            video_container.set_visibility(True)
+            with video_container:
+                with ui.row().classes('w-full p-2 bg-zinc-900 justify-between items-center'):
+                    ui.label(f'ODTWARZANIE: {title}').classes('text-xs font-bold text-orange-500')
+                    ui.button(icon='close', on_click=close_player).props('flat round color=white')
+                ui.video(path).classes('w-full').props('controls autoplay')
+            ui.run_javascript('window.scrollTo({top: 0, behavior: "smooth"})')
+
+        # --- TABELA NAGRAŃ ---
+        columns = [
+            {'name': 'date', 'label': 'DATA I GODZINA', 'field': 'date', 'align': 'left', 'sortable': True},
+            {'name': 'drone', 'label': 'DRON (PATH)', 'field': 'drone', 'align': 'left', 'sortable': True},
+            {'name': 'size', 'label': 'ROZMIAR', 'field': 'size', 'align': 'center'},
+            {'name': 'actions', 'label': 'AKCJE', 'field': 'actions', 'align': 'right'},
+        ]
+
+        table = ui.table(columns=columns, rows=get_recordings_list(), row_key='id') \
+            .classes('w-full bg-zinc-950 border border-zinc-900').props('dark flat')
+
+        # Slot dla przycisków
+        table.add_slot('body-cell-actions', f'''
+            <q-td :props="props">
+                <q-btn flat round icon="play_circle" color="orange" @click="$parent.$emit('play', props.row)">
+                    <q-tooltip>Odtwórz nagranie</q-tooltip>
+                </q-btn>
+                <q-btn flat round icon="download" color="blue" @click="$parent.$emit('download', props.row.path)">
+                    <q-tooltip>Pobierz na dysk</q-tooltip>
+                </q-btn>
+                {'<q-btn flat round icon="delete" color="red" @click="$parent.$emit(\'delete\', props.row)">' if role == 'admin' else ''}
+                    <q-tooltip>Usuń trwale</q-tooltip>
+                </q-btn>
+            </q-td>
+        ''')
+        # Dodaj to wewnątrz archive_interface, nad tabelą:
+        with ui.row().classes('w-full justify-between items-center bg-zinc-900 p-4 rounded-lg border border-zinc-800'):
+            with ui.column():
+                ui.label('REPOZYTORIUM NAGRAŃ').classes('text-orange-500 font-bold')
+                ui.label('Pliki zapisane bezpośrednio na serwerze VPS').classes('text-[10px] text-zinc-500')
+    
+            ui.button('ODŚWIEŻ LISTĘ', icon='sync', on_click=lambda: update_table()) \
+                .props('outline color=orange')
+
+        def update_table():
+            table.rows = get_recordings_list()
+            ui.notify('Zaktualizowano listę plików z dysku', color='info')
+
+        # --- HANDLERY ---
+        table.on('play', lambda e: play_video(e.args['path'], e.args['filename']))
+        
+        table.on('download', lambda e: ui.download(e.args))
+
+        async def delete_file(row):
+            result = await ui.dialog() \
+                .with_fields([ui.label(f"Czy na pewno chcesz usunąć nagranie {row['filename']}?")]) \
+                .props('persistent')
+            
+            # W NiceGUI 1.4+ lepiej użyć prostego potwierdzenia:
+            with ui.dialog() as dialog, ui.card():
+                ui.label(f"Usunąć nagranie {row['filename']}?")
+                with ui.row():
+                    ui.button('TAK', on_click=lambda: dialog.submit(True)).props('color=red')
+                    ui.button('NIE', on_click=lambda: dialog.submit(False))
+            
+            if await dialog:
+                try:
+                    full_path = os.path.join('/recordings', row['id'])
+                    os.remove(full_path)
+                    ui.notify('Plik usunięty', color='positive')
+                    table.rows = get_recordings_list()
+                    if video_container.is_visible: close_player()
+                except Exception as ex:
+                    ui.notify(f'Błąd usuwania: {ex}', color='negative')
+
+        table.on('delete', lambda e: delete_file(e.args))
+
+        # Przycisk odświeżania listy
+        ui.button('ODŚWIEŻ LISTĘ NAGRAŃ', on_click=lambda: setattr(table, 'rows', get_recordings_list())) \
+            .classes('w-full mt-4 bg-zinc-800 text-zinc-400')
+        
 def users_management_interface():
     current_user = app.storage.user.get('username')
     
@@ -769,8 +908,7 @@ def main_page():
 
         if user_role in ['admin', 'operator']:
             with ui.tab_panel(t_archive):
-                ui.label('ARCHIWUM').classes('text-2xl font-black')
-
+                archive_interface(username, role)
             with ui.tab_panel(t_streams):
                 streams_management_interface(username, user_role)
 
