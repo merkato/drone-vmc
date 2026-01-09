@@ -15,23 +15,17 @@ logging.basicConfig(
 
 # --- 1. LOGIKA RELACJI (WIDZOWIE / PILOCI) ---
 def toggle_rel(stream_id: int, user_id: int, rel_type: str, state: bool):
-    """Zarządza relacjami Many-to-Many między użytkownikami a strumieniami."""
     with SessionLocal() as db:
         stream = db.query(StreamPath).filter(StreamPath.id == stream_id).first()
         user = db.query(User).filter(User.id == user_id).first()
-        
-        if not stream or not user:
-            return
-        
+        if not stream or not user: return
         target_list = stream.authorized_viewers if rel_type == 'viewer' else stream.authorized_publishers
-        
         if state:
             if user not in target_list: target_list.append(user)
         else:
             if user in target_list: target_list.remove(user)
-            
         db.commit()
-        ui.notify(f"Uprawnienia {user.username} zaktualizowane", type='positive')
+        ui.notify(f"Zaktualizowano: {user.username}")
 
 # --- 2. LOGIKA ZARZĄDZANIA STRUMIENIAMI (DODAJ / USUŃ / NAGRYWAJ) ---
 def add_new_stream(path_name, description):
@@ -68,92 +62,100 @@ def update_recording_status(stream_id, state):
 @ui.refreshable
 def user_selection_ui(stream_id: int):
     with SessionLocal() as db:
-        # Tutaj też używamy selectinload, żeby menu widziało relacje
         stream = db.query(StreamPath).options(
             selectinload(StreamPath.authorized_viewers),
             selectinload(StreamPath.authorized_publishers)
         ).filter(StreamPath.id == stream_id).first()
-        
         all_users = db.query(User).all()
-        current_viewers = [u.id for u in stream.authorized_viewers]
-        current_publishers = [u.id for u in stream.authorized_publishers]
+        v_ids = [u.id for u in stream.authorized_viewers]
+        p_ids = [u.id for u in stream.authorized_publishers]
 
-    ui.label('UPRAWNIENIA').classes('text-[10px] font-black text-orange-500 mb-2')
-    with ui.grid(columns=2).classes('w-full gap-4'):
+    ui.label('ZARZĄDZANIE DOSTĘPEM').classes('text-xs font-black text-orange-500 mb-4 tracking-widest')
+    
+    with ui.grid(columns=2).classes('w-full gap-8'):
+        # WIDZOWIE
         with ui.column():
-            ui.label('WIDZOWIE').classes('text-[8px] text-zinc-500')
+            ui.label('WIDZOWIE (HLS)').classes('text-xs font-bold text-zinc-500 uppercase')
             for user in all_users:
-                ui.checkbox(user.username, value=(user.id in current_viewers),
+                # Zwiększona czcionka: text-base (16px) i font-bold
+                ui.checkbox(user.username, value=(user.id in v_ids),
                             on_change=lambda e, u_id=user.id: toggle_rel(stream_id, u_id, 'viewer', e.value)) \
-                    .classes('text-xs text-zinc-200')
-        with ui.column():
-            ui.label('PILOCI').classes('text-[8px] text-zinc-500')
-            for user in all_users:
-                ui.checkbox(user.username, value=(user.id in current_publishers),
-                            on_change=lambda e, u_id=user.id: toggle_rel(stream_id, u_id, 'publisher', e.value)) \
-                    .classes('text-xs text-zinc-200')
+                    .classes('text-base font-bold text-zinc-100 py-1')
 
+        # PILOCI
+        with ui.column():
+            ui.label('PILOCI (RTMP)').classes('text-xs font-bold text-zinc-500 uppercase')
+            for user in all_users:
+                ui.checkbox(user.username, value=(user.id in p_ids),
+                            on_change=lambda e, u_id=user.id: toggle_rel(stream_id, u_id, 'publisher', e.value)) \
+                    .classes('text-base font-bold text-zinc-100 py-1')
+
+# --- 3. GŁÓWNY INTERFEJS (POWIĘKSZONE LINKI) ---
 @ui.refreshable
 def streams_management_interface(username, role):
     if role != 'admin':
-        ui.label('Brak dostępu').classes('text-red-500 p-8')
+        ui.label('Brak uprawnień.').classes('text-red-500 p-8 text-xl')
         return
 
     with SessionLocal() as db:
-        # KLUCZOWE ROZWIĄZANIE: Ładujemy relacje Many-to-Many od razu (Eager Loading)
         streams = db.query(StreamPath).options(
             selectinload(StreamPath.authorized_viewers),
             selectinload(StreamPath.authorized_publishers)
         ).all()
 
-    ui.label('Zarządzanie Strumieniami').classes('text-2xl font-black mb-6 text-white uppercase')
+    ui.label('Zarządzanie Strumieniami').classes('text-3xl font-black mb-8 text-white uppercase tracking-tighter')
 
-    # SEKCJA DODAWANIA
-    with ui.card().classes('w-full bg-zinc-950 border-2 border-orange-900/20 p-6 mb-8 rounded-2xl'):
-        with ui.row().classes('w-full items-end gap-4'):
-            p_in = ui.input('path_name').classes('flex-grow').props('dark outlined color=orange')
-            d_in = ui.input('description').classes('flex-grow').props('dark outlined color=orange')
-            ui.button(icon='add', on_click=lambda: add_new_stream(p_in.value, d_in.value)).props('round size=lg color=orange')
-
-    # LISTA
-    with ui.grid(columns='1fr 1fr').classes('w-full gap-6'):
+    with ui.grid(columns='1fr 1fr').classes('w-full gap-8'):
         for stream in streams:
-            with ui.card().classes('bg-zinc-900 border-2 border-zinc-800 p-5 rounded-2xl'):
-                with ui.row().classes('w-full justify-between items-start'):
-                    with ui.column():
-                        ui.label(stream.description or stream.path_name).classes('text-xl font-black text-white')
-                        ui.label(f"PATH: {stream.path_name}").classes('text-[10px] text-zinc-500')
+            with ui.card().classes('bg-zinc-900 border-2 border-zinc-800 p-6 rounded-3xl shadow-2xl'):
+                
+                # Nagłówek Karty
+                with ui.row().classes('w-full justify-between items-center mb-4'):
+                    with ui.column().classes('gap-0'):
+                        ui.label(stream.description or stream.path_name).classes('text-2xl font-black text-white uppercase')
+                        ui.label(f"ID: {stream.path_name}").classes('text-xs font-mono text-zinc-500')
                     
-                    with ui.row():
-                        with ui.button(icon='manage_accounts', color='zinc-800').props('flat round'):
-                            with ui.menu().classes('p-6 bg-zinc-900 border border-zinc-700 min-w-[350px]'):
+                    with ui.row().classes('gap-3'):
+                        with ui.button(icon='manage_accounts', color='orange-9').props('elevated round size=lg'):
+                            with ui.menu().classes('p-8 bg-zinc-900 border-2 border-zinc-700 min-w-[450px] rounded-2xl shadow-2xl'):
                                 user_selection_ui.refresh(stream.id)
                                 user_selection_ui(stream.id)
-                        ui.button(icon='delete', color='red-9', on_click=lambda s_id=stream.id: delete_stream(s_id)).props('flat round')
+                        
+                        # Przycisk usuwania (wspólny dla modułu)
+                        ui.button(icon='delete', color='red-9', on_click=lambda s_id=stream.id: delete_stream(s_id)).props('flat round size=md')
 
-                ui.separator().classes('my-4 bg-zinc-800 opacity-40')
+                ui.separator().classes('mb-6 bg-zinc-800 opacity-50')
 
-                # SEKCJA LINKÓW (Teraz authorized_publishers są już załadowane!)
-                with ui.column().classes('w-full gap-3 mb-4 bg-zinc-950 p-4 rounded-xl border border-zinc-800'):
-                    ui.label('LINKI RTMP (PILOCI)').classes('text-[8px] font-black text-orange-500 tracking-widest')
+                # --- SEKCJA LINKÓW (CZYTELNA, DUŻA CZCIONKA) ---
+                with ui.column().classes('w-full gap-4 mb-6 bg-zinc-950 p-6 rounded-2xl border border-zinc-800'):
+                    
+                    # LINKI RTMP DLA PILOTÓW
+                    ui.label('LINKI DLA PILOTÓW (RTMP)').classes('text-xs font-black text-orange-500 tracking-widest uppercase')
                     for pilot in stream.authorized_publishers:
-                        rtmp_link = f"rtmp://{DOMAIN}:1935/{stream.path_name}?user={pilot.username}&password={pilot.password}"
-                        with ui.row().classes('w-full items-center justify-between no-wrap'):
-                            ui.label(pilot.username).classes('text-[10px] text-zinc-200 font-bold w-16')
-                            ui.label(rtmp_link).classes('text-[9px] font-mono text-zinc-500 truncate flex-grow')
+                        # DODANO: stream.DOMAIN
+                        rtmp_link = f"rtmp://stream.{DOMAIN}:1935/{stream.path_name}?user={pilot.username}&password={pilot.password}"
+                        with ui.row().classes('w-full items-center justify-between no-wrap bg-zinc-900/50 p-3 rounded-lg'):
+                            ui.label(pilot.username).classes('text-sm font-black text-zinc-200 w-24 truncate')
+                            # Powiększony link: text-sm font-mono
+                            ui.label(rtmp_link).classes('text-[12px] font-mono text-orange-300/80 truncate flex-grow px-2')
                             ui.button(icon='content_copy', on_click=lambda l=rtmp_link: ui.run_javascript(f'navigator.clipboard.writeText("{l}")')) \
-                                .props('flat dense size=sm color=orange')
+                                .props('flat color=orange').classes('ml-2')
 
-                    ui.separator().classes('my-2 bg-zinc-800 opacity-20')
+                    ui.separator().classes('my-2 bg-zinc-800 opacity-30')
 
-                    ui.label('LINKI HLS (WIDZOWIE)').classes('text-[8px] font-black text-blue-400 tracking-widest')
+                    # LINKI HLS DLA WIDZÓW
+                    ui.label('LINKI PODGLĄDU (HLS)').classes('text-xs font-black text-blue-400 tracking-widest uppercase')
                     for viewer in stream.authorized_viewers:
-                        hls_link = f"http://{DOMAIN}:8888/{stream.path_name}/index.m3u8?user={viewer.username}&password={viewer.password}"
-                        with ui.row().classes('w-full items-center justify-between no-wrap'):
-                            ui.label(viewer.username).classes('text-[10px] text-zinc-200 font-bold w-16')
-                            ui.label(hls_link).classes('text-[9px] font-mono text-zinc-500 truncate flex-grow')
+                        # DODANO: stream.DOMAIN
+                        hls_link = f"http://stream.{DOMAIN}:8888/{stream.path_name}/index.m3u8?user={viewer.username}&password={viewer.password}"
+                        with ui.row().classes('w-full items-center justify-between no-wrap bg-zinc-900/50 p-3 rounded-lg'):
+                            ui.label(viewer.username).classes('text-sm font-black text-zinc-200 w-24 truncate')
+                            ui.label(hls_link).classes('text-[12px] font-mono text-blue-300/80 truncate flex-grow px-2')
                             ui.button(icon='link', on_click=lambda l=hls_link: ui.run_javascript(f'navigator.clipboard.writeText("{l}")')) \
-                                .props('flat dense size=sm color=blue-400')
+                                .props('flat color=blue-400').classes('ml-2')
 
-                ui.switch('NAGRYWANIE', value=stream.is_recording_enabled, 
-                          on_change=lambda e, s_id=stream.id: update_recording_status(s_id, e.value)).props('color=orange')
+                # Suwaczek nagrywania
+                with ui.row().classes('w-full justify-between items-center px-4 py-2 bg-zinc-800/30 rounded-xl'):
+                    ui.label('NAGRYWANIE ARCHIWALNE').classes('text-xs font-black text-zinc-400 tracking-widest')
+                    ui.switch(value=stream.is_recording_enabled, 
+                              on_change=lambda e, s_id=stream.id: update_recording_status(s_id, e.value)).props('color=orange size=lg')
