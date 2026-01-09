@@ -54,11 +54,16 @@ def get_recordings_list():
 
     # Sortowanie: najnowsze nagrania (z największą datą) na samej górze
     return sorted(recordings, key=lambda x: x['date'], reverse=True)
+
 @ui.refreshable
-def archive_interface():
+def archive_interface(username: str, role: str): # <--- DODAJEMY ARGUMENTY
     """Interfejs przeglądania i odtwarzania nagrań."""
     ui.label('Archiwum Nagrań Operacyjnych').classes('text-2xl font-black mb-6 text-white uppercase')
     
+    # Możemy teraz dodać logikę uprawnień!
+    # Np. tylko admin może usuwać nagrania
+    is_admin = (role == 'admin')
+
     recordings = get_recordings_list()
     
     if not recordings:
@@ -67,27 +72,27 @@ def archive_interface():
             ui.label('Brak nagrań na dysku serwera.').classes('text-zinc-600 font-bold')
             return
 
-    # LISTA NAGRAŃ W FORMIE KART
     with ui.column().classes('w-full gap-4'):
         for rec in recordings:
-            with ui.card().classes('bg-zinc-900 border border-zinc-800 w-full p-4 rounded-xl hover:border-orange-900/50 transition-all'):
+            with ui.card().classes('bg-zinc-900 border border-zinc-800 w-full p-4 rounded-xl shadow-lg'):
                 with ui.row().classes('w-full items-center justify-between'):
-                    # Informacje o pliku
                     with ui.row().classes('items-center gap-4'):
                         ui.icon('videocam', color='orange').classes('text-2xl')
                         with ui.column().classes('gap-0'):
                             ui.label(rec['name']).classes('text-lg font-bold text-zinc-100')
-                            ui.label(f"{rec['date']} | Rozmiar: {rec['size']}").classes('text-xs text-zinc-500')
+                            ui.label(f"{rec['date']} | {rec['size']}").classes('text-xs text-zinc-500')
                     
-                    # Przyciski akcji
                     with ui.row().classes('gap-2'):
-                        # Przycisk odtwarzania (Otwiera w nowym oknie lub dialogu)
                         ui.button(icon='play_arrow', on_click=lambda r=rec: play_recording(r['name'])) \
-                            .props('flat round color=green').tooltip('Odtwórz')
+                            .props('flat round color=green')
                         
-                        # Przycisk pobierania
-                        ui.button(icon='download', on_click=lambda r=rec: ui.download(f"/recordings/{r['name']}")) \
-                            .props('flat round color=blue').tooltip('Pobierz na dysk')
+                        ui.button(icon='download', on_click=lambda r=rec: ui.download(f"/recordings/{rec['name']}")) \
+                            .props('flat round color=blue')
+
+                        # DODATKOWO: Usuwanie tylko dla Admina (wykorzystujemy role)
+                        if is_admin:
+                            ui.button(icon='delete', on_click=lambda r=rec: delete_recording(r['name'])) \
+                                .props('flat round color=red')
 
 def play_recording(filename):
     """Otwiera okno dialogowe z odtwarzaczem wideo."""
