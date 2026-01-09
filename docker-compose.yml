@@ -2,6 +2,8 @@ services:
   # REVERSE PROXY - Automatyczny SSL i Routing
   proxy:
     image: caddy:latest
+    networks:
+      - drone-net
     container_name: caddy_proxy
     ports:
       - "80:80"
@@ -17,6 +19,8 @@ services:
   drone_app:
     build: ./app
     container_name: drone_app
+    networks:
+      - drone-net
     ports:
       - "8080:8080"  # Lewy to VPS, prawy to KONTENER. Prawy MUSI być 8080.
     environment:
@@ -32,12 +36,15 @@ services:
   # SILNIK WIDEO - RTMP, RTSP, WebRTC, DVR
   mediamtx:
     image: bluenviron/mediamtx:latest
+    networks:
+      - drone-net
     container_name: mediamtx
     ports:
       - "1935:1935"      # RTMP dla dronów
       - "8554:8554"      # RTSP dla kamer IP
       - "8000:8000/udp"  # WebRTC UDP Mux
       - "8889:8889/tcp"   # WebRTC (Signaling)
+      - "8888:8888/"   # HLS
       - "8889:8889/udp"   # WebRTC (Wideo - KLUCZOWE)
       - "8189:8189/udp"   # ICE (Czasem wymagane)
       - "9997:9997"
@@ -48,6 +55,9 @@ services:
     depends_on:
       drone_app:
         condition: service_started
+networks:
+  drone-net:
+    driver: bridge
 
 volumes:
   recordings_data:
