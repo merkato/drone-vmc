@@ -15,7 +15,7 @@ apiAddress: :9997
 # WebRTC
 webrtc: yes
 webrtcAddress: :8889
-
+webrtcICEUDPServerNames: 57.129.137.140
 paths:
   all:
     record: no
