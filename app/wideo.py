@@ -1,9 +1,10 @@
 import os
 import requests
+import logging
 from datetime import datetime
 from nicegui import ui
 from models import SessionLocal, User, StreamPath
-from config import MEDIAMTX_WEBRTC, RECORDINGS_DIR
+from config import RECORDINGS_DIR, DOMAIN
 
 # --- LOGIKA SYSTEMU WIDEO ---
 
@@ -20,30 +21,50 @@ def get_active_streams_from_api():
     return []
 
 def get_recordings_list():
-    """Skanuje folder /recordings w poszukiwaniu plików wideo."""
-    base_path = '/recordings'
+    """
+    Skanuje folder nagrań, wyciąga metadane i sortuje od najnowszych.
+    Zastępuje sztywne ścieżki (hardcoding) profesjonalną stałą RECORDINGS_DIR.
+    """
     recordings = []
-    if not os.path.exists(base_path):
+    
+    # Sprawdzamy, czy folder w ogóle istnieje (bezpiecznik przed crashem)
+    if not os.path.exists(RECORDINGS_DIR):
+        logging.warning(f"Brak dostępu do folderu nagrań: {RECORDINGS_DIR}")
         return []
 
-    for root, dirs, files in os.walk(base_path):
-        for file in files:
-            if file.endswith(('.mp4', '.m4v')):
-                full_path = os.path.join(root, file)
-                rel_path = os.path.relpath(full_path, base_path)
-                
-                stats = os.stat(full_path)
-                size_mb = round(stats.st_size / (1024 * 1024), 2)
-                date_str = datetime.fromtimestamp(stats.st_ctime).strftime('%Y-%m-%d %H:%M')
-                
-                recordings.append({
-                    'id': rel_path,
-                    'drone': rel_path.split(os.sep)[0],
-                    'filename': file,
-                    'date': date_str,
-                    'size': f"{size_mb} MB",
-                    'url': f"/recordings/{rel_path}"
-                })
+    try:
+        # os.walk przejdzie przez wszystkie podfoldery (np. /recordings/drone1/...)
+        for root, dirs, files in os.walk(RECORDINGS_DIR):
+            for file in files:
+                if file.endswith(('.mp4', '.m4v')):
+                    full_path = os.path.join(root, file)
+                    
+                    # Ścieżka relatywna do RECORDINGS_DIR (potrzebna do URL i ID)
+                    rel_path = os.path.relpath(full_path, RECORDINGS_DIR)
+                    
+                    try:
+                        stats = os.stat(full_path)
+                        # Rozmiar w MB - bez kilometrowych ułamków "a la Pesa"
+                        size_mb = round(stats.st_size / (1024 * 1024), 2)
+                        # Data utworzenia/modyfikacji
+                        date_str = datetime.fromtimestamp(stats.st_mtime).strftime('%Y-%m-%d %H:%M')
+                        
+                        recordings.append({
+                            'id': rel_path,
+                            'drone': rel_path.split(os.sep)[0] if os.sep in rel_path else "System",
+                            'filename': file,
+                            'date': date_str,
+                            'size': f"{size_mb} MB",
+                            'url': f"/recordings/{rel_path}" # Serwowane przez app.add_static_files
+                        })
+                    except Exception as e:
+                        logging.error(f"Nie można odczytać statystyk pliku {file}: {e}")
+
+    except Exception as e:
+        logging.error(f"Krytyczny błąd skanowania dysku: {e}")
+        return []
+
+    # Sortowanie: najnowsze nagrania (z największą datą) na samej górze
     return sorted(recordings, key=lambda x: x['date'], reverse=True)
 
     
@@ -107,7 +128,7 @@ def live_grid_content(username, role):
                 
                 ui.html(f'''
     <video style="width:100%; height:auto;" autoplay muted controls>
-        <source src="http://{DOMAIN}:8888/{path}/index.m3u8" type="application/x-mpegURL">
+        <source src="http://{DOMAIN}:8888/{s.path_name}/index.m3u8" type="application/x-mpegURL">
     </video>
 ''', sanitize=False)
 
