@@ -9,6 +9,7 @@ from nicegui import ui
 import logging
 import time
 from pathlib import Path
+import logging
 from models import SessionLocal, SystemConfig
 
 # --- KONFIGURACJA ---
@@ -94,6 +95,7 @@ def upload_to_gdrive(file_path, folder_id):
 
 async def run_retention_task():
     """Zadanie uruchamiane okresowo do czyszczenia/backupu plików."""
+    logging.info("Rozpoczynam procedurę retencji danych...")
     with SessionLocal() as db:
         config = db.query(SystemConfig).first()
         if not config:
@@ -108,7 +110,7 @@ async def run_retention_task():
             
             if file_age > retention_secs:
                 if config.retention_policy == "BACKUP" and config.gdrive_folder_id:
-                    ui.notify(f"Backupuję: {vid.name}...", color='info')
+                    logging.info(f"Archiwizacja na GDrive: {vid.name}")
                     if upload_to_gdrive(vid, config.gdrive_folder_id):
                         vid.unlink() # Usuń po sukcesie backupu
                         logging.info(f"Zarchiwizowano i usunięto: {vid.name}")

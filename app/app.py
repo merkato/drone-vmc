@@ -3,6 +3,7 @@ import os
 from nicegui import app, ui
 from fastapi import Request, Response
 from fastapi.responses import RedirectResponse
+import asyncio
 import json
 from urllib.parse import parse_qs
 
@@ -220,12 +221,19 @@ def main_page():
                     ui.separator().classes('bg-zinc-800 my-4')
                     user_management_interface()
 
-# Wykonaj retencję danych nagrań na dysk GDrive co 5 dni
-def handle_startup():
-    # Uruchamiamy timer, który będzie tykał w tle serwera
-    ui.timer(3600.0, run_retention_task) 
+async def retention_loop():
+    """Pętla działająca wiecznie w tle serwera."""
+    while True:
+        try:
+            await run_retention_task()
+        except Exception as e:
+            logging.error(f"Błąd w pętli retencji: {e}")
+        
+        # Czekaj np. 1 godzinę (3600s) przed kolejnym sprawdzeniem
+        await asyncio.sleep(3600)
 
-app.on_startup(handle_startup)
+# Uruchamiamy pętlę przy starcie serwera
+app.on_startup(retention_loop)
 
 # START SYSTEMU
 if __name__ in {"__main__", "__mp_main__"}:
