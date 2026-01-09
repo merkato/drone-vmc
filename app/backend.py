@@ -99,27 +99,43 @@ def upload_to_gdrive(file_path, folder_id):
 async def run_retention_task():
     """Zadanie uruchamiane okresowo do czyszczenia/backupu plików."""
     logging.info("Rozpoczynam procedurę retencji danych...")
+    
+    # 1. Otwieramy sesję tylko na chwilę, żeby pobrać parametry
     with SessionLocal() as db:
-        config = db.query(SystemConfig).first()
-        if not config:
-            return # Brak konfiguracji, nic nie robimy
+        config_obj = db.query(SystemConfig).first()
+        if not config_obj:
+            logging.warning("Retencja: Brak konfiguracji w bazie danych.")
+            return 
 
-        now = time.time()
-        # Obliczamy próg w sekundach: $T = n \times 24 \times 3600$
-        retention_secs = config.retention_days * 24 * 3600
+        # KLUCZ: Przepisujemy dane do zwykłych zmiennych (typów prostych)
+        # Dzięki temu nie będziemy potrzebować aktywnej sesji 'db' w pętli
+        policy = config_obj.retention_policy
+        days = config_obj.retention_days
+        folder_id = config_obj.gdrive_folder_id
+        
+        # Wyliczamy próg raz, tutaj sesja jeszcze żyje
+        retention_secs = days * 24 * 3600
 
-        for vid in RECORDINGS_DIR.rglob("*.mp4"):
+    # 2. Tutaj sesja 'db' jest już zamknięta (wcięcie wróciło), 
+    # ale mamy wszystkie dane w lokalnych zmiennych: policy, retention_secs, folder_id.
+    
+    now = time.time()
+    for vid in RECORDINGS_DIR.rglob("*.mp4"):
+        try:
             file_age = now - vid.stat().st_mtime
             
             if file_age > retention_secs:
-                if config.retention_policy == "BACKUP" and config.gdrive_folder_id:
+                if policy == "BACKUP" and folder_id:
                     logging.info(f"Archiwizacja na GDrive: {vid.name}")
-                    if upload_to_gdrive(vid, config.gdrive_folder_id):
-                        vid.unlink() # Usuń po sukcesie backupu
+                    # Upewnij się, czy upload_to_gdrive nie potrzebuje 'await'!
+                    if upload_to_gdrive(vid, folder_id):
+                        vid.unlink()
                         logging.info(f"Zarchiwizowano i usunięto: {vid.name}")
                 else:
-                    vid.unlink() # Po prostu usuń
+                    vid.unlink()
                     logging.info(f"Usunięto stary plik (retencja): {vid.name}")
+        except Exception as e:
+            logging.error(f"Błąd przy przetwarzaniu pliku {vid}: {e}")
 
 def retention_settings_ui():
     with SessionLocal() as db:
