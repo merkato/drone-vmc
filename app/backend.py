@@ -10,9 +10,9 @@ from datetime import datetime
 from collections import defaultdict
 from nicegui import ui
 from models import SessionLocal, SystemConfig
-
+from config import RECORDINGS_DIR
 # --- KONFIGURACJA ---
-RECORDINGS_DIR = '/recordings'
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
