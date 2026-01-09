@@ -113,18 +113,18 @@ def live_grid_content(username, role):
                 ''').classes('w-full')
 
 # --- INTERFEJS: LIVE GRID - wywołanie ---
-def live_grid_interface():
+def live_grid_interface(username, role):
     """Tę funkcję wywołuje main_page w zakładce GRID OPERACYJNY."""
     with ui.column().classes('w-full p-4 bg-black'):
         # Inicjalne wywołanie zawartości
-        live_grid_content()
+        live_grid_content(username, role)
         
         # Automatyczne odświeżanie statusów LIVE i listy strumieni co 5 sekund
         ui.timer(30.0, live_grid_content.refresh)
 
 def archive_interface(username, role):
     """Panel przeglądania i odtwarzania nagrań Mp4."""
-    
+    ui.label(f'Archiwum dla użytkownika: {username}').classes('text-white')
     # Kontener na odtwarzacz (pojawia się po kliknięciu Play)
     player_box = ui.column().classes('w-full mb-6 bg-black border border-orange-900 rounded-lg overflow-hidden shadow-2xl')
     player_box.set_visibility(False)
