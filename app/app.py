@@ -169,7 +169,7 @@ def login_page():
      
 # Główna strona
 @ui.page('/')
-def main_page():
+async def main_page():
     # 1. Strażnik sesji - jeśli nie ma kompletu danych, wyrzuca do logowania
     if not is_authenticated():
         return ui.navigate.to('/login')
@@ -206,7 +206,10 @@ def main_page():
     with ui.tab_panels(tabs, value=t_grid).classes('w-full bg-black text-zinc-300'):
         
         with ui.tab_panel(t_grid).classes('p-0'):
-            live_grid_interface(username, role)
+            u_name = app.storage.user.get('username')
+            u_role = app.storage.user.get('role')
+            u_pass = app.storage.user.get('password')
+            await live_grid_interface(u_name, u_role, u_pass)
 
         if role in ['admin', 'operator']:
             with ui.tab_panel(t_archive):

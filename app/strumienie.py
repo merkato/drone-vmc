@@ -70,12 +70,12 @@ def user_selection_ui(stream_id: int):
         v_ids = [u.id for u in stream.authorized_viewers]
         p_ids = [u.id for u in stream.authorized_publishers]
 
-    ui.label('ZARZĄDZANIE DOSTĘPEM').classes('text-xs font-black text-orange-500 mb-4 tracking-widest')
+    ui.label('ZARZĄDZANIE DOSTĘPEM').classes('text-s font-black text-orange-500 mb-4 tracking-widest')
     
     with ui.grid(columns=2).classes('w-full gap-8'):
         # WIDZOWIE
         with ui.column():
-            ui.label('WIDZOWIE (HLS)').classes('text-xs font-bold text-zinc-500 uppercase')
+            ui.label('WIDZOWIE (HLS)').classes('text-s font-bold text-zinc-500 uppercase')
             for user in all_users:
                 # Zwiększona czcionka: text-base (16px) i font-bold
                 ui.checkbox(user.username, value=(user.id in v_ids),
@@ -84,7 +84,7 @@ def user_selection_ui(stream_id: int):
 
         # PILOCI
         with ui.column():
-            ui.label('PILOCI (RTMP)').classes('text-xs font-bold text-zinc-500 uppercase')
+            ui.label('PILOCI (RTMP)').classes('text-s font-bold text-zinc-500 uppercase')
             for user in all_users:
                 ui.checkbox(user.username, value=(user.id in p_ids),
                             on_change=lambda e, u_id=user.id: toggle_rel(stream_id, u_id, 'publisher', e.value)) \
@@ -113,7 +113,7 @@ def streams_management_interface(username, role):
                 with ui.row().classes('w-full justify-between items-center mb-4'):
                     with ui.column().classes('gap-0'):
                         ui.label(stream.description or stream.path_name).classes('text-2xl font-black text-white uppercase')
-                        ui.label(f"ID: {stream.path_name}").classes('text-xs font-mono text-zinc-500')
+                        ui.label(f"ID: {stream.path_name}").classes('text-s font-mono text-zinc-500')
                     
                     with ui.row().classes('gap-3'):
                         with ui.button(icon='manage_accounts', color='orange-9').props('elevated round size=lg'):
