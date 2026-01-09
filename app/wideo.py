@@ -9,61 +9,63 @@ from config import RECORDINGS_DIR, DOMAIN
 
 # --- LOGIKA SYSTEMU WIDEO ---
 def get_recordings_list():
-    """
-    Skanuje folder nagrań, wyciąga metadane i sortuje od najnowszych.
-    Zastępuje sztywne ścieżki (hardcoding) profesjonalną stałą RECORDINGS_DIR.
-    """
-    recordings = []
-    
-    # Sprawdzamy, czy folder w ogóle istnieje (bezpiecznik przed crashem)
+    """Pobiera listę plików i pakuje je w słowniki z kluczami 'name', 'size', 'date'."""
     if not os.path.exists(RECORDINGS_DIR):
-        logging.warning(f"Brak dostępu do folderu nagrań: {RECORDINGS_DIR}")
         return []
-
+    
+    recordings = []
     try:
-        # os.walk przejdzie przez wszystkie podfoldery (np. /recordings/drone1/...)
-        for root, dirs, files in os.walk(RECORDINGS_DIR):
-            for file in files:
-                if file.endswith(('.mp4', '.m4v')):
-                    full_path = os.path.join(root, file)
-                    
-                    # Ścieżka relatywna do RECORDINGS_DIR (potrzebna do URL i ID)
-                    rel_path = os.path.relpath(full_path, RECORDINGS_DIR)
-                    
-                    try:
-                        stats = os.stat(full_path)
-                        # Rozmiar w MB - bez kilometrowych ułamków "a la Pesa"
-                        size_mb = round(stats.st_size / (1024 * 1024), 2)
-                        # Data utworzenia/modyfikacji
-                        date_str = datetime.fromtimestamp(stats.st_mtime).strftime('%Y-%m-%d %H:%M')
-                        
-                        recordings.append({
-                            'id': rel_path,
-                            'drone': rel_path.split(os.sep)[0] if os.sep in rel_path else "System",
-                            'filename': file,
-                            'date': date_str,
-                            'size': f"{size_mb} MB",
-                            'url': f"/recordings/{rel_path}" # Serwowane przez app.add_static_files
-                        })
-                    except Exception as e:
-                        logging.error(f"Nie można odczytać statystyk pliku {file}: {e}")
-
+        for f in os.listdir(RECORDINGS_DIR):
+            # Filtrujemy tylko pliki wideo
+            if f.endswith(('.mp4', '.mkv', '.ts')):
+                full_path = os.path.join(RECORDINGS_DIR, f)
+                stats = os.stat(full_path)
+                
+                # Tworzymy słownik - KAŻDY musi mieć te same klucze
+                recordings.append({
+                    'name': str(f),
+                    'size': f"{stats.st_size / (1024*1024):.1f} MB",
+                    'date': datetime.fromtimestamp(stats.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                    'raw_date': stats.st_mtime # do sortowania
+                })
     except Exception as e:
-        logging.error(f"Krytyczny błąd skanowania dysku: {e}")
+        print(f"Błąd skanowania katalogu nagrań: {e}")
         return []
 
-    # Sortowanie: najnowsze nagrania (z największą datą) na samej górze
-    return sorted(recordings, key=lambda x: x['date'], reverse=True)
+    # Sortujemy od najnowszych
+    return sorted(recordings, key=lambda x: x['raw_date'], reverse=True)
+
+async def delete_recording(filename: str, username: str, role: str):
+    """
+    Usuwa plik nagrania z dysku po potwierdzeniu przez użytkownika.
+    """
+    def perform_deletion():
+        try:
+            full_path = os.path.join(RECORDINGS_DIR, filename)
+            if os.path.exists(full_path):
+                os.remove(full_path)
+                ui.notify(f"Usunięto nagranie: {filename}", type='info')
+                # ODŚWIEŻAMY INTERFEJS (musimy przekazać argumenty!)
+                archive_interface.refresh(username, role)
+            else:
+                ui.notify("Błąd: Plik nie istnieje na dysku.", type='negative')
+        except Exception as e:
+            ui.notify(f"Błąd podczas usuwania: {e}", type='negative')
+
+    with ui.dialog() as confirm_dialog, ui.card().classes('p-6 bg-zinc-900 border-2 border-red-900/50'):
+        ui.label(f'CZY NA PEWNO USUNĄĆ?').classes('text-lg font-black text-white uppercase')
+        ui.label(f'Plik: {filename}').classes('text-sm text-zinc-400 mb-4')
+        with ui.row().classes('w-full justify-end gap-3'):
+            ui.button('ANULUJ', on_click=confirm_dialog.close).props('flat color=white')
+            ui.button('USUŃ DEFINITYWNIE', on_click=lambda: [perform_deletion(), confirm_dialog.close()]) \
+                .props('color=red-9 shadow-lg')
+    
+    confirm_dialog.open()
 
 @ui.refreshable
-def archive_interface(username: str, role: str): # <--- DODAJEMY ARGUMENTY
-    """Interfejs przeglądania i odtwarzania nagrań."""
+def archive_interface(username: str, role: str):
     ui.label('Archiwum Nagrań Operacyjnych').classes('text-2xl font-black mb-6 text-white uppercase')
     
-    # Możemy teraz dodać logikę uprawnień!
-    # Np. tylko admin może usuwać nagrania
-    is_admin = (role == 'admin')
-
     recordings = get_recordings_list()
     
     if not recordings:
@@ -74,25 +76,25 @@ def archive_interface(username: str, role: str): # <--- DODAJEMY ARGUMENTY
 
     with ui.column().classes('w-full gap-4'):
         for rec in recordings:
+            # Używamy rec.get('name'), aby uniknąć KeyError w razie błędu
+            file_name = rec.get('name', 'Nieznany plik')
+            file_date = rec.get('date', '--')
+            file_size = rec.get('size', '0 MB')
+
             with ui.card().classes('bg-zinc-900 border border-zinc-800 w-full p-4 rounded-xl shadow-lg'):
                 with ui.row().classes('w-full items-center justify-between'):
                     with ui.row().classes('items-center gap-4'):
                         ui.icon('videocam', color='orange').classes('text-2xl')
                         with ui.column().classes('gap-0'):
-                            ui.label(rec['name']).classes('text-lg font-bold text-zinc-100')
-                            ui.label(f"{rec['date']} | {rec['size']}").classes('text-xs text-zinc-500')
+                            ui.label(file_name).classes('text-lg font-bold text-zinc-100')
+                            ui.label(f"{file_date} | {file_size}").classes('text-xs text-zinc-500')
                     
                     with ui.row().classes('gap-2'):
-                        ui.button(icon='play_arrow', on_click=lambda r=rec: play_recording(r['name'])) \
+                        ui.button(icon='play_arrow', on_click=lambda f=file_name: play_recording(f)) \
                             .props('flat round color=green')
                         
-                        ui.button(icon='download', on_click=lambda r=rec: ui.download(f"/recordings/{rec['name']}")) \
+                        ui.button(icon='download', on_click=lambda f=file_name: ui.download(f"/recordings/{f}")) \
                             .props('flat round color=blue')
-
-                        # DODATKOWO: Usuwanie tylko dla Admina (wykorzystujemy role)
-                        if is_admin:
-                            ui.button(icon='delete', on_click=lambda r=rec: delete_recording(r['name'])) \
-                                .props('flat round color=red')
 
 def play_recording(filename):
     """Otwiera okno dialogowe z odtwarzaczem wideo."""
