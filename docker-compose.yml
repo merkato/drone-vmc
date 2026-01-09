@@ -13,6 +13,21 @@ services:
       - caddy_config:/config
     restart: always
 
+  # APLIKACJA ZARZĄDZAJĄCA
+  drone_app:
+    build: ./app
+    container_name: drone_app
+    ports:
+      - "8080:8080"  # Lewy to VPS, prawy to KONTENER. Prawy MUSI być 8080.
+    environment:
+      - DOMAIN=${DOMAIN}
+      - STORAGE_SECRET=${STORAGE_SECRET}
+    volumes:
+      - ./vms_db.db:/app/vms_db.db
+      - ./credentials.json:/app/credentials.json # Klucz do Google Drive
+      - recordings_data:/recordings
+    restart: always
+ 
   # SILNIK WIDEO - RTMP, RTSP, WebRTC, DVR
   mediamtx:
     image: bluenviron/mediamtx:latest
@@ -27,19 +42,9 @@ services:
       - ./config/mediamtx.yml:/mediamtx.yml:ro
       - recordings_data:/recordings
     restart: always
-
-  # APLIKACJA ZARZĄDZAJĄCA
-  drone_app:
-    build: ./app
-    container_name: drone_app
-    environment:
-      - DOMAIN=${DOMAIN}
-      - STORAGE_SECRET=${STORAGE_SECRET}
-    volumes:
-      - ./vms_db.db:/app/vms_db.db
-      - ./credentials.json:/app/credentials.json # Klucz do Google Drive
-      - recordings_data:/recordings
-    restart: always
+    depends_on:
+      drone_app:
+        condition: service_started
 
 volumes:
   recordings_data:
