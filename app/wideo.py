@@ -160,17 +160,16 @@ async def live_grid_content(username: str, password: str):
 
                 # ODTWARZACZ HLS Z AUTORYZACJĄ
                 if is_live:
-                    # Link HLS z Twoimi parametrami ?user=xxx&password=yyy
                     hls_url = f"http://stream.{DOMAIN}:8888/{stream.path_name}/index.m3u8?user={username}&password={password}"
-                    
-                    # Kontener na wideo z unikalnym ID dla Fullscreena
                     video_id = f"video_{stream.id}"
+    
+                    # DODAJEMY sanitize=False na końcu
                     ui.html(f'''
-                        <video id="{video_id}" controls autoplay muted playsinline class="w-full aspect-video">
-                            <source src="{hls_url}" type="application/x-mpegURL">
-                            Twoja przeglądarka nie obsługuje HLS.
-                        </video>
-                    ''')
+                    <video id="{video_id}" controls autoplay muted playsinline class="w-full aspect-video bg-black rounded-lg shadow-inner">
+                    <source src="{hls_url}" type="application/x-mpegURL">
+                    Twoja przeglądarka nie obsługuje HLS.
+                    </video>
+                    ''', sanitize=False)
                     
                     # STOPKA Z LINKIEM FULLSCREEN
                     with ui.row().classes('w-full justify-end p-1'):
