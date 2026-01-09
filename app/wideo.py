@@ -106,11 +106,10 @@ def live_grid_content(username, role):
                 stream_url = f"https://stream.giswgorach.pl/{s.path_name}/"
                 
                 ui.html(f'''
-                    <iframe src="{stream_url}" 
-                        style="width:100%; height:220px; border:none; background: #000;" 
-                        allowfullscreen scrolling="no">
-                    </iframe>
-                ''').classes('w-full')
+    <video style="width:100%; height:auto;" autoplay muted controls>
+        <source src="http://{DOMAIN}:8888/{path}/index.m3u8" type="application/x-mpegURL">
+    </video>
+''', sanitize=False)
 
 # --- INTERFEJS: LIVE GRID - wywołanie ---
 def live_grid_interface(username, role):

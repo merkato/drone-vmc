@@ -7,7 +7,7 @@ import psutil
 import shutil
 
 from datetime import datetime
-from collections import defaultdict
+from collections import defaultdict, deque
 from nicegui import ui
 from models import SessionLocal, SystemConfig
 from config import RECORDINGS_DIR
@@ -59,72 +59,77 @@ def add_alert(drone, msg, level='warning'):
         position='top-right'
     )
 
+cpu_history = deque(maxlen=10)
+
 def get_sys_resources():
-    """Pobiera dane i od razu je formatuje do strażackich standardów."""
+    """Pobiera dane i uśrednia wynik CPU, aby uniknąć migotania."""
     try:
+        # Pobierz aktualny odczyt (natychmiastowy)
+        current_cpu = psutil.cpu_percent()
+        cpu_history.append(current_cpu)
+        
+        # Oblicz średnią z historii
+        avg_cpu = sum(cpu_history) / len(cpu_history)
+        
         total, used, free = shutil.disk_usage(RECORDINGS_DIR)
+        
         return {
-            # Zaokrąglamy do 1 miejsca po przecinku, żeby nie straszyć liczbami
-            'cpu': round(psutil.cpu_percent(), 1),
+            'cpu': round(avg_cpu, 1),
             'ram': round(psutil.virtual_memory().percent, 1),
             'disk_pct': round((used / total) * 100, 1),
             'disk_free': free // (2**30),
             'disk_total': total // (2**30)
         }
-    except Exception:
+    except Exception as e:
+        logging.error(f"Błąd pobierania zasobów: {e}")
         return {'cpu': 0, 'ram': 0, 'disk_pct': 0, 'disk_free': 0, 'disk_total': 0}
 
 @ui.refreshable
 def system_info_ui():
-    """Wielki, czytelny panel stanu serwera - widoczny z daleka."""
+    """Wielki, stabilny panel stanu serwera."""
     res = get_sys_resources()
     
-    # Dynamiczne kolory (wyraźne kontrasty)
+    # Kolory (teraz będą zmieniać się płynnie, nie skokowo)
     cpu_color = 'red' if res['cpu'] > 80 else ('orange' if res['cpu'] > 50 else 'green-5')
     ram_color = 'red' if res['ram'] > 90 else ('blue-6' if res['ram'] > 60 else 'cyan-5')
 
-    # Główny kontener - teraz wyższy i z wyraźniejszym obramowaniem
     with ui.row().classes('w-full gap-8 items-center justify-between p-6 bg-zinc-900 rounded-2xl border-2 border-zinc-800 shadow-2xl'):
         
-        # CPU - Wielkie pokrętło
+        # CPU z uśrednionym wynikiem
         with ui.column().classes('items-center'):
-            ui.label('CPU').classes('text-sm font-black text-zinc-400 tracking-tighter mb-1')
-            # Zwiększamy rozmiar do 120px i grubość linii
+            ui.label('PROCESOR (ŚREDNIA)').classes('text-[10px] font-black text-zinc-500 mb-1')
             ui.knob(res['cpu'], min=0, max=100, show_value=True, color=cpu_color).props(
                 'size=120px font-size=24px track-color=zinc-800 center-color=zinc-950 thickness=0.2'
             ).classes('text-bold')
             
-        # RAM - Wielkie pokrętło
+        # RAM
         with ui.column().classes('items-center'):
-            ui.label('RAM').classes('text-sm font-black text-zinc-400 tracking-tighter mb-1')
+            ui.label('PAMIĘĆ RAM').classes('text-[10px] font-black text-zinc-500 mb-1')
             ui.knob(res['ram'], min=0, max=100, show_value=True, color=ram_color).props(
                 'size=120px font-size=24px track-color=zinc-800 center-color=zinc-950 thickness=0.2'
             ).classes('text-bold')
             
-        # DYSK - Solidny pasek postępu
+        # DYSK
         with ui.column().classes('items-start flex-grow px-6'):
-            ui.label('MIEJSCE NA NAGRANIA (DYSK)').classes('text-sm font-black text-zinc-400 mb-2')
+            ui.label('MIEJSCE NA NAGRANIA').classes('text-[10px] font-black text-zinc-500 mb-2')
             
-            # Większy procent zajętości
             with ui.row().classes('w-full justify-between items-center mb-2'):
-                ui.label(f"{res['disk_pct']}%").classes('text-3xl font-black text-white')
-                ui.label('ZAJĘTE').classes('text-xs text-zinc-600')
+                ui.label(f"{res['disk_pct']}%").classes('text-4xl font-black text-white')
+                ui.label('ZAJĘTE').classes('text-xs text-zinc-600 font-bold')
             
-            # Grubszy pasek (h-5)
-            progress_color = 'red' if res['disk_pct'] > 90 else 'blue-7'
-            ui.linear_progress(value=res['disk_pct'] / 100, color=progress_color).classes('w-full h-5 rounded-lg shadow-inner')
+            p_color = 'red' if res['disk_pct'] > 90 else 'blue-7'
+            ui.linear_progress(value=res['disk_pct'] / 100, color=p_color).classes('w-full h-6 rounded-lg')
             
-            # Czytelne info o GB
-            with ui.row().classes('w-full justify-between mt-3 bg-zinc-950 p-2 rounded-md'):
+            with ui.row().classes('w-full justify-between mt-3 bg-zinc-950 p-3 rounded-xl border border-zinc-800'):
                 with ui.column().classes('gap-0'):
-                    ui.label('WOLNE').classes('text-[10px] text-zinc-500')
-                    ui.label(f"{res['disk_free']} GB").classes('text-xl font-bold text-green-400')
+                    ui.label('WOLNE').classes('text-[10px] text-zinc-500 font-bold')
+                    ui.label(f"{res['disk_free']} GB").classes('text-2xl font-black text-green-500')
                 with ui.column().classes('gap-0 items-end'):
-                    ui.label('POJEMNOŚĆ').classes('text-[10px] text-zinc-500')
-                    ui.label(f"{res['disk_total']} GB").classes('text-lg font-bold text-zinc-300')
+                    ui.label('TOTAL').classes('text-[10px] text-zinc-500 font-bold')
+                    ui.label(f"{res['disk_total']} GB").classes('text-lg font-bold text-zinc-400')
 
-    # Odświeżanie co 2 sekundy, żeby "tętniło życiem"
-    ui.timer(2.0, system_info_ui.refresh)
+    # Odświeżanie co 1 sekundę dla płynności ruchu knoba
+    ui.timer(1.0, system_info_ui.refresh)
 
 # --- LOGIKA BACKENDU: GOOGLE DRIVE & RETENCJA ---
 def upload_to_gdrive(file_path, folder_id):
