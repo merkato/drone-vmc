@@ -3,8 +3,8 @@ import requests
 from datetime import datetime
 from nicegui import ui
 from models import SessionLocal, User, StreamPath
+from config import MEDIAMTX_WEBRTC, RECORDINGS_DIR
 
-MEDIAMTX_WEBRTC = f"https://stream.{DOMAIN}"
 # --- LOGIKA SYSTEMU WIDEO ---
 
 def get_active_streams_from_api():

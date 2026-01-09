@@ -1,6 +1,7 @@
 import requests
 from nicegui import ui
 from models import SessionLocal, User, StreamPath
+from config import MEDIAMTX_API
 
 # --- LOGIKA ZEWNĘTRZNA (MediaMTX) ---
 
