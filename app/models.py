@@ -3,14 +3,18 @@ from sqlalchemy import create_engine, Column, Integer, String, Boolean, Table, F
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 
-# 1. Konfiguracja ścieżki bazy danych (bezpieczna dla Dockera)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
-if not os.path.exists(DATA_DIR):
-    os.makedirs(DATA_DIR, exist_ok=True)
-DB_PATH = os.path.join(BASE_DIR, "database.db")
+DB_DIR = "/app/data"
+DB_FILE = os.path.join(DB_DIR, "database.db")
 
-SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
+# AUTOMATYCZNE TWORZENIE FOLDERU (jeśli Docker go nie stworzył)
+if not os.path.exists(DB_DIR):
+    try:
+        os.makedirs(DB_DIR, exist_ok=True)
+    except Exception as e:
+        print(f"BŁĄD TWORZENIA FOLDERU BAZY: {e}")
+
+# SQLALCHEMY_DATABASE_URL musi mieć 4 slashes dla ścieżki absolutnej w Linuxie: sqlite:////...
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_FILE}"
 
 # 2. Inicjalizacja silnika SQLAlchemy
 engine = create_engine(
