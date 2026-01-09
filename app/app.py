@@ -649,7 +649,7 @@ def live_grid_content():
             is_live = s.path_name in active_paths
             
             # Automatyczne logowanie do iFrame
-            stream_url = f"https://stream.giswgorach.pl/{s.path_name}?user={current_u.username}&password={current_u.password}"
+            stream_url = f"https://stream.giswgorach.pl/{s.path_name}/?user={current_u.username}&password={current_u.password}"
 
             with ui.card().classes('bg-zinc-900 border border-zinc-800 p-0 overflow-hidden shadow-2xl relative'):
                 # Pasek tytułowy
@@ -669,13 +669,13 @@ def live_grid_content():
 
                 # Okno Wideo
                 ui.html(f'''
-                    <div style="position:relative; padding-top:56.25%; background:#000;">
-                        <iframe src="{stream_url}" 
-                                style="position:absolute; top:0; left:0; width:100%; height:100%; border:none;"
-                                allowfullscreen>
-                        </iframe>
-                    </div>
-                ''', sanitize=False).classes('w-full')
+        <div style="position:relative; padding-top:56.25%; background:#000;">
+            <iframe src="{stream_url}" 
+                    style="position:absolute; top:0; left:0; width:100%; height:100%; border:none;"
+                    allowfullscreen>
+            </iframe>
+        </div>
+    ''', sanitize=False).classes('w-full')
 
                 # Stopka
                 with ui.row().classes('w-full p-2 bg-zinc-900/50'):

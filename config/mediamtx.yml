@@ -12,11 +12,15 @@ pathDefaults:
 api: yes
 apiAddress: :9997
 
+# Włączamy stabilny HLS
+hls: yes
+hlsAddress: :8888
+hlsAlwaysRemux: yes # Ważne: remuksuje RTMP do HLS natychmiast
+
 # WebRTC
-webrtc: yes
+webrtc: no
 webrtcAddress: :8889
-webrtcICEUDP: yes
-webrtcICEUDPServerName: 57.129.137.140
+
 paths:
   all:
     record: no
