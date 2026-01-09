@@ -17,7 +17,7 @@ services:
 
   # APLIKACJA ZARZĄDZAJĄCA
   drone_app:
-    build: ./app
+    build: .
     container_name: drone_app
     networks:
       - drone-net
