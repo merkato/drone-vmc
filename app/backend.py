@@ -6,7 +6,6 @@ from datetime import datetime
 from collections import defaultdict
 from nicegui import ui
 
-import logging
 import time
 from pathlib import Path
 import logging
@@ -14,7 +13,11 @@ from models import SessionLocal, SystemConfig
 
 # --- KONFIGURACJA ---
 RECORDINGS_DIR = '/recordings'
-
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 # --- DANE IN-MEMORY (Znikają po restarcie kontenera) ---
 stats_history = defaultdict(list)
 last_bytes = {}

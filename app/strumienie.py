@@ -1,10 +1,17 @@
 import requests
+import logging
+import httpx
 from nicegui import ui
 from models import SessionLocal, User, StreamPath
 from config import MEDIAMTX_API
 
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 # --- LOGIKA ZEWNĘTRZNA (MediaMTX) ---
-
 async def sync_recording_state(path_name: str, should_record: bool):
     """Informuje MediaMTX czy ma nagrywać konkretną ścieżkę wideo."""
     try:
@@ -14,7 +21,7 @@ async def sync_recording_state(path_name: str, should_record: bool):
         response = requests.patch(url, json=payload, timeout=2)
         return response.status_code == 200
     except Exception as e:
-        print(f"Błąd API MediaMTX (REC): {e}")
+        logging.info(f"Błąd API MediaMTX (REC): {e}")
         return False
 
 # --- GŁÓWNY INTERFEJS ---
@@ -85,24 +92,26 @@ def streams_management_interface(username, role):
             stream_table.rows = get_streams_list()
             await show_rtmp_dialog(path)
 
-    async def toggle_recording(args):
-        """Przełącza stan REC w bazie i w MediaMTX."""
-        p_name = args['path']
-        new_state = args['state']
-        
-        with SessionLocal() as db:
-            s = db.query(StreamPath).filter(StreamPath.path_name == p_name).first()
-            if s:
-                s.is_recording_enabled = new_state
-                db.commit()
-        
-        success = await sync_recording_state(p_name, new_state)
-        if success:
-            ui.notify(f'Nagrywanie {p_name}: {"ON" if new_state else "OFF"}', 
-                      color='red-9' if new_state else 'grey-8')
-        else:
-            ui.notify('MediaMTX API błąd - sprawdź konfigurację!', color='negative')
-            stream_table.rows = get_streams_list() # Cofnij suwak w UI
+    async def toggle_recording(stream_name: str, status: bool):
+        """Zmienia status nagrywania w MediaMTX."""
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.patch(f"{MEDIAMTX_API}/config/paths/patch/{stream_name}", 
+                                       json={"record": status})
+            
+                if response.status_code == 200:
+                    # LOGUJEMY sukces w systemie
+                    logging.info(f"Zmieniono status nagrywania dla {stream_name} na: {status}")
+                    # POWIADAMIAMY operatora na ekranie
+                    ui.notify(f"Strumień {stream_name}: Nagrywanie {'aktywne' if status else 'zatrzymane'}", type='positive')
+                else:
+                    logging.error(f"Błąd API MediaMTX ({response.status_code}) dla strumienia {stream_name}")
+                    ui.notify("Błąd serwera wideo!", type='negative')
+
+        except Exception as e:
+            # To jest krytyczne - jeśli MediaMTX padnie, musimy mieć to w logach!
+            logging.exception(f"Krytyczny błąd komunikacji z MediaMTX przy obsłudze {stream_name}")
+            ui.notify("Brak połączenia z silnikiem wideo!", type='negative')
 
     async def show_rtmp_dialog(p_name):
         """Wyświetla okno z linkami RTMP dla pilotów."""
