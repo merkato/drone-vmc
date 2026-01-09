@@ -109,52 +109,57 @@ from fastapi import Request, Response
 
 @app.post('/auth')
 async def mediamtx_auth(request: Request):
-    """
-    Endpoint obsługujący autoryzację dla MediaMTX v1.15.6+
-    MediaMTX wysyła: user, password, path, action (publish/read), ip
-    """
     try:
-        data = await request.json()
+        # Pobieramy surowe dane, aby uniknąć błędu "Invalid HTTP request" przy parsowaniu JSON
+        body = await request.body()
+        if not body:
+            print("AUTH: Otrzymano pusty body")
+            return Response(status_code=401)
+            
+        data = json.loads(body)
         user_login = data.get('user')
         user_pass = data.get('password')
         stream_path = data.get('path')
-        action = data.get('action') # 'publish' dla drona, 'read' dla widza
+        action = data.get('action') # 'publish' lub 'read'
+
+        # LOG DLA CIEBIE (zobaczysz to w docker logs drone_app)
+        print(f"--- PRÓBA AUTORYZACJI ---")
+        print(f"User: {user_login}, Path: {stream_path}, Action: {action}")
 
         with SessionLocal() as db:
-            # 1. Weryfikacja użytkownika
-            user = db.query(User).filter(
-                User.username == user_login, 
-                User.password == user_pass
-            ).first()
-            
+            # Szukamy użytkownika
+            user = db.query(User).filter(User.username == user_login, User.password == user_pass).first()
             if not user:
-                print(f"AUTH: Nieudane logowanie dla {user_login}")
+                print(f"AUTH: Błędny login lub hasło dla: {user_login}")
                 return Response(status_code=401)
 
-            # 2. Weryfikacja strumienia
+            # Szukamy strumienia (sprawdzamy bez względu na wielkość liter dla bezpieczeństwa)
             stream = db.query(StreamPath).filter(StreamPath.path_name == stream_path).first()
+            
             if not stream:
-                # Jeśli admin chce nadawać na nowej ścieżce, której nie ma w DB
                 if user.role == 'admin':
+                    print(f"AUTH: Admin tworzy nową ścieżkę: {stream_path}")
                     return Response(status_code=200)
+                print(f"AUTH: Strumień {stream_path} nie istnieje w bazie!")
                 return Response(status_code=401)
 
-            # 3. Sprawdzanie uprawnień specyficznych dla akcji
+            # Weryfikacja uprawnień
             if action == 'publish':
-                # Czy użytkownik jest Pilotem (Publisherem) lub Adminem
-                if user in stream.authorized_publishers or user.role == 'admin' or stream.owner_username == user.username:
+                if user.role == 'admin' or user in stream.authorized_publishers:
+                    print(f"AUTH: Dron {user_login} zaakceptowany na {stream_path}")
                     return Response(status_code=200)
             
             elif action == 'read':
-                # Czy użytkownik jest Widzem (Viewerem) lub Adminem
-                if user in stream.authorized_viewers or user.role == 'admin' or user in stream.authorized_publishers:
+                if user.role == 'admin' or user in stream.authorized_viewers or user in stream.authorized_publishers:
+                    print(f"AUTH: Widz {user_login} zaakceptowany na {stream_path}")
                     return Response(status_code=200)
 
+        print(f"AUTH: Brak uprawnień dla {user_login} na {stream_path} ({action})")
         return Response(status_code=401)
-        
+
     except Exception as e:
-        print(f"BŁĄD AUTH: {e}")
-        return Response(status_code=500)
+        print(f"KRYTYCZNY BŁĄD AUTH: {str(e)}")
+        return Response(status_code=401)
 
 def get_active_streams():
     """Pobiera listę nazw aktywnych strumieni bezpośrednio z API MediaMTX."""
