@@ -369,25 +369,27 @@ def login_page():
         
         async def do_login():
             with SessionLocal() as db:
+            # Szukamy użytkownika w bazie
                 user = db.query(User).filter(
                     User.username == u.value, 
                     User.password == p.value
                 ).first()
-                
+        
                 if user:
-                    # KLUCZOWA POPRAWKA: Dodajemy 'user_id': user.id
+                    # Zapisujemy komplet danych w bezpiecznym magazynie sesji
                     app.storage.user.update({
                         'authenticated': True, 
                         'username': user.username, 
                         'role': user.role,
-                        'user_id': user.id  # <--- BEZ TEGO GRID NIE DZIAŁA
+                        'user_id': user.id  # Kluczowe dla filtrowania streamów w Gridzie
                     })
-                    ui.notify(f'Witaj {user.username}!', color='positive')
-                    
-                    # Zamiast JS, użyjmy wbudowanego przekierowania NiceGUI (jest stabilniejsze dla sesji)
+            
+                    ui.notify(f'Witaj {user.username}! System operacyjny gotowy.', color='positive', icon='check_circle')
+            
+                     # Przekierowanie NiceGUI - czyści stan starej strony i ładuje '/' z nową sesją
                     ui.navigate.to('/')
                 else:
-                    ui.notify('Błędne dane – sąsiadka Cię nie wpuści!', color='negative')
+                    ui.notify('Błędne dane – sąsiadka Cię nie wpuści!', color='negative', icon='warning')
         
         # Obsługa Entera na obu polach
         u.on('keydown.enter', do_login)
@@ -907,6 +909,15 @@ def live_grid_interface():
 
 @ui.page('/')
 def main_page():
+    # 1. Pobieramy dane z sesji użytkownika
+    username = app.storage.user.get('username')
+    role = app.storage.user.get('role')
+
+    # 2. Zabezpieczenie: jeśli nie ma danych, wracamy do logowania
+    if not username or not role:
+        ui.navigate.to('/login')
+        return
+    
     ui.query('body').style('background-color: #000000;')
     ui.query('.q-page').style('background-color: #000000;')
     # Pobieramy dane sesji
@@ -919,8 +930,8 @@ def main_page():
             # Twoje logo 38kB z app/static/logo.png
             ui.image('/static/logo.png').classes('w-12 h-12')
             with ui.column().classes('gap-0'):
-                ui.label('Drone VMS').classes('text-l font-black text-white leading-none')
-                ui.label('Ochotnicza Straż Pożarna Istebna-Centrum').classes('text-[12px] text-blue-500 font-bold tracking-widest uppercase')
+                ui.label('Ochotnicza Straż Pożarna Istebna-Centrum').classes('text-l font-black text-white leading-none')
+                ui.label('Centrum Monitoringu Wizyjnego BSP').classes('text-[12px] text-blue-500 font-bold tracking-widest uppercase')
 
         with ui.row().classes('items-center gap-3'):
             ui.label(f"OPERATOR: {username.upper()}").classes('text-[12px] text-zinc-500 font-mono')
