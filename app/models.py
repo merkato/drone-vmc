@@ -74,6 +74,13 @@ class StreamPath(Base):
         back_populates="publishing_streams"
     )
 
+class SystemConfig(Base):
+    __tablename__ = 'system_config'
+    id = Column(Integer, primary_key=True)
+    retention_policy = Column(String, default="DELETE") # DELETE lub BACKUP
+    retention_days = Column(Integer, default=30)
+    gdrive_folder_id = Column(String, nullable=True)
+
 # Funkcja pomocnicza do tworzenia tabel (wywoływana w app.py)
 def init_db():
     Base.metadata.create_all(bind=engine)
