@@ -33,12 +33,18 @@ if not os.path.exists('/recordings'):
 app.mount("/recordings", StaticFiles(directory="/recordings"), name="recordings")
 app.add_static_files('/static', 'static')
 
-# --- BAZA DANYCH (SQLAlchemy) ---
-DB_URL = "sqlite:///./vms_db.db"
 Base = declarative_base()
-engine = create_engine(DB_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(bind=engine)
+# Wymuszamy ścieżkę absolutną wewnątrz kontenera
+DB_PATH = "/app/vms.db"
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
 
+# Dodatkowe parametry dla SQLite, aby lepiej radził sobie z blokowaniem plików
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, 
+    connect_args={"check_same_thread": False},
+    pool_pre_ping=True
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 # --- TABELE ASOCJACYJNE (Uprawnienia) ---
 # Muszą być zdefiniowane przed klasami, które ich używają w 'secondary'
 
