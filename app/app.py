@@ -15,7 +15,7 @@ from fastapi import Request, HTTPException, Response, responses
 from fastapi.staticfiles import StaticFiles
 from nicegui import app, ui
 from sqlalchemy import create_engine, Column, String, Boolean, Table, ForeignKey, Integer, Text
-from sqlalchemy.orm import sessionmaker, relationship, declarative_base
+from sqlalchemy.orm import Session, sessionmaker, relationship, declarative_base
 
 # --- KONFIGURACJA ŚRODOWISKA ---
 DOMAIN = os.getenv('DOMAIN', 'localhost')
@@ -740,61 +740,92 @@ def archive_interface(username, role):
         ui.button('ODŚWIEŻ LISTĘ NAGRAŃ', on_click=lambda: setattr(table, 'rows', get_recordings_list())) \
             .classes('w-full mt-4 bg-zinc-800 text-zinc-400')
         
-def users_management_interface():
-    current_user = app.storage.user.get('username')
-    
-    with ui.column().classes('w-full max-w-6xl mx-auto p-4 gap-6'):
-        ui.label('ZARZĄDZANIE UŻYTKOWNIKAMI').classes('text-2xl font-black text-white')
+def user_management_interface():
+    def get_users():
+        with SessionLocal() as db:
+            users = db.query(User).all()
+            return [{'id': u.id, 'username': u.username, 'role': u.role, 'password': u.password} for u in users]
 
-        with ui.row().classes('w-full items-stretch gap-6'):
-            # KARTA: Twoje Hasło
-            with ui.card().classes('bg-zinc-900 border border-zinc-800 p-6 flex-1 text-white'):
-                ui.label('ZMIANA TWOJEGO HASŁA').classes('text-sm font-bold text-blue-400 mb-4')
-                new_pw = ui.input('Nowe hasło', password=True).classes('w-full').props('dark filled dense')
-                async def update_my_pw():
-                    with SessionLocal() as db:
-                        u = db.query(User).filter(User.username == current_user).first()
-                        u.password = new_pw.value
-                        db.commit()
-                        ui.notify('Hasło zmienione!')
-                        new_pw.value = ''
-                ui.button('ZAPISZ', on_click=update_my_pw).classes('w-full mt-4 bg-blue-700 font-bold')
+    # --- FUNKCJA EDYCJI (DIALOG) ---
+    async def edit_user(user_data):
+        with ui.dialog() as dialog, ui.card().classes('w-96 bg-zinc-900 border border-zinc-800'):
+            ui.label(f'EDYCJA: {user_data["username"]}').classes('text-orange-500 font-bold')
+            
+            # Formularz wewnątrz dialogu
+            new_pass = ui.input('Nowe Hasło', value=user_data['password']).props('dark filled').classes('w-full')
+            new_role = ui.select(
+                ['admin', 'pilot', 'viewer'], 
+                label='Rola', 
+                value=user_data['role']
+            ).props('dark filled').classes('w-full')
+            
+            with ui.row().classes('w-full justify-end mt-4'):
+                ui.button('ANULUJ', on_click=dialog.close).props('flat color=white')
+                ui.button('ZAPISZ', on_click=lambda: dialog.submit({
+                    'password': new_pass.value,
+                    'role': new_role.value
+                })).props('color=orange')
 
-            # KARTA: Dodaj Nowego
-            with ui.card().classes('bg-zinc-900 border border-zinc-800 p-6 flex-1 text-white'):
-                ui.label('NOWY UŻYTKOWNIK').classes('text-sm font-bold text-green-500 mb-4')
-                u_n = ui.input('Login').classes('w-full').props('dark filled dense')
-                u_p = ui.input('Hasło', password=True).classes('w-full').props('dark filled dense')
-                u_r = ui.select(['admin', 'operator', 'viewer'], value='viewer').classes('w-full').props('dark filled dense text-white')
-                async def create_u():
-                    with SessionLocal() as db:
-                        db.add(User(username=u_n.value, password=u_p.value, role=u_r.value))
-                        db.commit()
-                        ui.notify(f'Utworzono: {u_n.value}')
-                        u_n.value = u_p.value = ''
-                        user_table.rows = get_users()
-                ui.button('UTWÓRZ', on_click=create_u).classes('w-full mt-4 bg-zinc-800 text-green-500 font-bold')
+        result = await dialog
+        if result:
+            with SessionLocal() as db:
+                db_user = db.query(User).filter(User.id == user_data['id']).first()
+                if db_user:
+                    db_user.password = result['password']
+                    db_user.role = result['role']
+                    db.commit()
+                    ui.notify(f'Zaktualizowano użytkownika {db_user.username}', color='positive')
+                    user_table.rows = get_users()
+
+    # --- FUNKCJA USUWANIA (POTWIERDZENIE) ---
+    async def delete_user(user_id, username):
+        with ui.dialog() as dialog, ui.card().classes('bg-zinc-900 border border-red-900'):
+            ui.label(f'Czy na pewno usunąć użytkownika {username}?').classes('text-white')
+            with ui.row():
+                ui.button('TAK, USUŃ', on_click=lambda: dialog.submit(True)).props('color=red')
+                ui.button('NIE', on_click=lambda: dialog.submit(False)).props('flat color=white')
+        
+        if await dialog:
+            with SessionLocal() as db:
+                db_user = db.query(User).filter(User.id == user_id).first()
+                if db_user:
+                    db.delete(db_user)
+                    db.commit()
+                    ui.notify(f'Usunięto użytkownika {username}', color='warning')
+                    user_table.rows = get_users()
+
+    with ui.column().classes('w-full max-w-4xl mx-auto p-4 gap-4'):
+        ui.label('ZARZĄDZANIE PERSONELEM').classes('text-xl font-black text-orange-500')
 
         # Tabela użytkowników
-        def get_users():
-            with SessionLocal() as db:
-                return [{'username': u.username, 'role': u.role} for u in db.query(User).all()]
+        columns = [
+            {'name': 'username', 'label': 'LOGIN', 'field': 'username', 'align': 'left', 'sortable': True},
+            {'name': 'role', 'label': 'ROLA', 'field': 'role', 'align': 'left', 'sortable': True},
+            {'name': 'actions', 'label': 'OPERACJE', 'field': 'actions', 'align': 'right'},
+        ]
 
-        user_table = ui.table(
-            columns=[
-                {'name': 'username', 'label': 'LOGIN', 'field': 'username', 'align': 'left'},
-                {'name': 'role', 'label': 'ROLA', 'field': 'role', 'align': 'left'},
-                {'name': 'actions', 'label': 'AKCJE', 'field': 'actions', 'align': 'right'}
-            ],
-            rows=get_users(), row_key='username'
-        ).classes('w-full bg-zinc-950 border border-zinc-900').props('dark flat border')
+        user_table = ui.table(columns=columns, rows=get_users(), row_key='id') \
+            .classes('w-full bg-zinc-950 border border-zinc-900').props('dark flat')
 
+        # SLOT DLA PRZYCISKÓW (Edytuj / Usuń)
         user_table.add_slot('body-cell-actions', '''
             <q-td :props="props">
-                <q-btn flat round icon="delete" color="red" size="sm" @click="$parent.$emit('del', props.row.username)" />
+                <q-btn flat round icon="edit" color="orange-4" size="sm" @click="$parent.$emit('edit', props.row)">
+                    <q-tooltip>Edytuj dane i uprawnienia</q-tooltip>
+                </q-btn>
+                <q-btn flat round icon="person_remove" color="red-8" size="sm" @click="$parent.$emit('delete', props.row)">
+                    <q-tooltip>Usuń konto użytkownika</q-tooltip>
+                </q-btn>
             </q-td>
         ''')
-        user_table.on('del', lambda e: delete_user_logic(e.args, user_table, get_users))
+
+        # Rejestracja zdarzeń z tabeli
+        user_table.on('edit', lambda e: edit_user(e.args))
+        user_table.on('delete', lambda e: delete_user(e.args['id'], e.args['username']))
+
+        # Przycisk dodawania (stary, powinien być wpięty w formularz wyżej)
+        ui.button('DODAJ NOWEGO PRACOWNIKA', on_click=lambda: ui.notify('Użyj formularza powyżej')) \
+            .classes('w-full bg-zinc-800 text-zinc-400 text-xs')
 
 # --- LOGIKA GRIDU OPERACYJNEGO ---
 
