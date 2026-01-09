@@ -181,6 +181,22 @@ def get_active_streams():
         return []
     return []
 
+def sync_recording_state(path_name: str, should_record: bool):
+    """Informuje MediaMTX czy ma nagrywać konkretną ścieżkę."""
+    try:
+        # API MediaMTX: PATCH /v3/config/paths/patch/{name}
+        url = f"http://mediamtx:9997/v3/config/paths/patch/{path_name}"
+        payload = {"record": should_record}
+        response = requests.patch(url, json=payload, timeout=2)
+        
+        if response.status_code == 200:
+            status_text = "WŁĄCZONE" if should_record else "WYŁĄCZONE"
+            ui.notify(f"Nagrywanie dla {path_name}: {status_text}", color='info')
+        else:
+            ui.notify("Błąd synchronizacji z MediaMTX", color='negative')
+    except Exception as e:
+        print(f"Błąd API MediaMTX (Recording): {e}")
+
 def management_page():
     ui.label('Zarządzanie Systemem').classes('text-3xl font-bold mb-6 text-white')
 
@@ -409,21 +425,15 @@ async def save_stream_backend(path_name, description, publisher_ids, viewer_ids)
 
 def streams_management_interface(username, role):
     """
-    Kompletny interfejs zarządzania strumieniami:
-    - Dodawanie/Edycja dronów
-    - Zarządzanie uprawnieniami (Piloci/Widzowie)
-    - Generowanie poświadczeń RTMP
-    - Tabela z weryfikacją uprawnień do usuwania
+    Kompletny interfejs zarządzania strumieniami z obsługą nagrywania (REC).
     """
     
     # --- FUNKCJE POMOCNICZE (WEWNĘTRZNE) ---
     def get_current_users():
-        """Pobiera aktualną listę użytkowników do menu wyboru."""
         with SessionLocal() as db:
             return {u.id: u.username for u in db.query(User).all()}
 
     def get_streams():
-        """Pobiera strumienie, które dany użytkownik może widzieć/zarządzać."""
         with SessionLocal() as db:
             if role == 'admin':
                 streams = db.query(StreamPath).all()
@@ -431,16 +441,19 @@ def streams_management_interface(username, role):
                 user = db.query(User).filter(User.username == username).first()
                 owned = db.query(StreamPath).filter(StreamPath.owner_username == username).all()
                 published = user.allowed_streams if user else []
-                # Połączenie list i usunięcie duplikatów
                 streams = list({s.path_name: s for s in (owned + published)}.values())
             
-            return [{'path': s.path_name, 'desc': s.description, 'owner': s.owner_username} for s in streams]
+            return [{
+                'path': s.path_name, 
+                'desc': s.description, 
+                'owner': s.owner_username,
+                'rec': s.is_recording_enabled # Stan nagrywania z bazy
+            } for s in streams]
 
     with ui.column().classes('w-full max-w-6xl mx-auto p-4 gap-6 bg-black'):
         
         # --- PANEL 1: FORMULARZ KONFIGURACJI ---
         with ui.card().classes('bg-zinc-900 border border-zinc-800 p-8 text-white w-full shadow-2xl relative'):
-            # Przycisk odświeżania użytkowników
             ui.button(icon='refresh', on_click=lambda: refresh_user_lists()) \
                 .props('flat round size=sm color=zinc-500') \
                 .classes('absolute right-4 top-4') \
@@ -452,17 +465,15 @@ def streams_management_interface(username, role):
                 s_path = ui.input('ID Strumienia (np. istebna/mini1)', placeholder='np. dron-1').classes('flex-1').props('dark filled')
                 s_desc = ui.input('Opis / Lokalizacja').classes('flex-1').props('dark filled')
 
-            # Wybór osób
             u_opts = get_current_users()
             with ui.row().classes('w-full gap-4 mb-4'):
                 p_sel = ui.select(u_opts, multiple=True, label='PILOCI (NADAWANIE)').classes('flex-1').props('dark filled')
                 v_sel = ui.select(u_opts, multiple=True, label='WIDZOWIE (PODGLĄD)').classes('flex-1').props('dark filled')
 
-            # PANEL LINKÓW RTMP (Ukryty domyślnie)
+            # PANEL LINKÓW RTMP
             rtmp_box = ui.column().classes('w-full mt-6 p-4 bg-black rounded border border-zinc-800 shadow-inner')
             rtmp_box.set_visibility(False)
 
-            # --- LOGIKA WYŚWIETLANIA LINKÓW ---
             def show_links_in_box(links):
                 rtmp_box.clear()
                 rtmp_box.set_visibility(True)
@@ -480,7 +491,7 @@ def streams_management_interface(username, role):
                 if not s_path.value:
                     ui.notify('BŁĄD: Podaj ID strumienia!', color='negative')
                     return
-                
+                # Tu wywołujesz swoją funkcję backendową zapisu
                 links = await save_stream_backend(s_path.value, s_desc.value, p_sel.value, v_sel.value)
                 if links:
                     show_links_in_box(links)
@@ -504,6 +515,7 @@ def streams_management_interface(username, role):
         columns = [
             {'name': 'path', 'label': 'ID (PATH)', 'field': 'path', 'align': 'left', 'sortable': True},
             {'name': 'desc', 'label': 'OPIS', 'field': 'desc', 'align': 'left'},
+            {'name': 'rec', 'label': 'REC', 'field': 'rec', 'align': 'center'}, # Kolumna na suwak
             {'name': 'owner', 'label': 'WŁAŚCICIEL', 'field': 'owner', 'align': 'left'},
             {'name': 'actions', 'label': 'AKCJE', 'field': 'actions', 'align': 'right'},
         ]
@@ -511,6 +523,19 @@ def streams_management_interface(username, role):
         stream_table = ui.table(columns=columns, rows=get_streams(), row_key='path') \
             .classes('w-full bg-zinc-950 border border-zinc-900 shadow-2xl').props('dark flat border')
 
+        # SLOT DLA SUWAKA REC
+        stream_table.add_slot('body-cell-rec', '''
+            <q-td :props="props">
+                <q-toggle 
+                    v-model="props.row.rec" 
+                    color="red" 
+                    keep-color
+                    @update:model-value="val => $parent.$emit('toggle_rec', {path: props.row.path, state: val})"
+                />
+            </q-td>
+        ''')
+
+        # SLOT DLA PRZYCISKÓW AKCJI
         stream_table.add_slot('body-cell-actions', '''
             <q-td :props="props">
                 <q-btn flat round icon="vpn_key" color="orange" size="sm" @click="$parent.$emit('show_rtmp', props.row.path)">
@@ -522,7 +547,28 @@ def streams_management_interface(username, role):
             </q-td>
         ''')
 
-        # --- HANDLERY TABELI ---
+        # --- HANDLERY ZDARZEŃ TABELI ---
+        
+        async def handle_toggle_rec(args):
+            p_name = args['path']
+            new_state = args['state']
+            
+            # 1. Zapis do bazy
+            with SessionLocal() as db:
+                s = db.query(StreamPath).filter(StreamPath.path_name == p_name).first()
+                if s:
+                    s.is_recording_enabled = new_state
+                    db.commit()
+            
+            # 2. Synchronizacja z MediaMTX
+            success = await sync_recording_state(p_name, new_state)
+            if success:
+                msg = "Nagrywanie AKTYWNE" if new_state else "Nagrywanie ZATRZYMANE"
+                ui.notify(f"{p_name}: {msg}", color='red-9' if new_state else 'grey-8')
+            else:
+                ui.notify("Błąd MediaMTX!", color='negative')
+                stream_table.rows = get_streams() # Odśwież, by cofnąć suwak
+
         async def fetch_and_show_links(p_name):
             with SessionLocal() as db:
                 s = db.query(StreamPath).filter(StreamPath.path_name == p_name).first()
@@ -531,11 +577,9 @@ def streams_management_interface(username, role):
                     for pub in s.authorized_publishers:
                         l = f"rtmp://stream.giswgorach.pl/{s.path_name}?user={pub.username}&password={pub.password}"
                         links.append({'user': pub.username, 'link': l})
-                    
                     if not links:
                         ui.notify('Brak przypisanych pilotów!', color='warning')
                         return
-                        
                     show_links_in_box(links)
                     ui.run_javascript('window.scrollTo({top: 0, behavior: "smooth"})')
 
@@ -543,19 +587,17 @@ def streams_management_interface(username, role):
             with SessionLocal() as db:
                 s = db.query(StreamPath).filter(StreamPath.path_name == p_name).first()
                 if not s: return
-                
-                u = db.query(User).filter(User.username == username).first()
-                
-                # Uprawnienia: Admin, Właściciel lub Pilot
-                if role == 'admin' or s.owner_username == username or u in s.authorized_publishers:
+                if role == 'admin' or s.owner_username == username:
                     db.delete(s)
                     db.commit()
                     ui.notify(f'Strumień {p_name} usunięty', color='positive', icon='delete')
                     stream_table.rows = get_streams()
                     rtmp_box.set_visibility(False)
                 else:
-                    ui.notify('Brak uprawnień do usunięcia!', color='negative')
+                    ui.notify('Brak uprawnień!', color='negative')
 
+        # Rejestracja zdarzeń wysyłanych z Vue (slotów)
+        stream_table.on('toggle_rec', lambda e: handle_toggle_rec(e.args))
         stream_table.on('show_rtmp', lambda e: fetch_and_show_links(e.args))
         stream_table.on('delete_st', lambda e: delete_stream_logic(e.args))
 

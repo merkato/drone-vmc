@@ -3,12 +3,6 @@
 authMethod: http
 authHTTPAddress: http://drone_app:8080/auth
 
-# Nowy sposób definiowania domyślnych parametrów zapisu
-pathDefaults:
-  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S
-  recordFormat: fmp4
-  recordPartDuration: 10m
-
 api: yes
 apiAddress: :9997
 
@@ -24,6 +18,13 @@ hlsAllowOrigin: '*'          # Ważne dla iFrame
 webrtc: no
 webrtcAddress: :8889
 
+# Globalne ustawienia nagrywania
+record: no
+recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S
+recordFormat: fmp4        # fMP4 jest bardziej odporne na nagłe przerwanie zasilania/połączenia
+recordPartDuration: 1s
+recordSegmentDuration: 1h # Nowy plik co godzinę (jeśli misja trwa bardzo długo)
+
 paths:
-  all:
-    record: no
+  all: # To ustawienie zadziała dla każdego drona
+    record: yes
