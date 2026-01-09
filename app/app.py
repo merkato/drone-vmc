@@ -4,6 +4,7 @@ from nicegui import app, ui
 from fastapi import Request, Response
 from fastapi.responses import RedirectResponse
 import asyncio
+import logging
 import json
 from urllib.parse import parse_qs
 
