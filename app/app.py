@@ -5,13 +5,14 @@ import psutil
 import httpx
 import logging
 import requests
+import json
 from urllib.parse import parse_qs
 from pathlib import Path
 from collections import defaultdict
 from datetime import datetime
 
-from fastapi import Request, HTTPException, responses
-from nicegui import app, ui, core
+from fastapi import Request, HTTPException, Response, responses
+from nicegui import app, ui
 from sqlalchemy import create_engine, Column, String, Boolean, Table, ForeignKey, Integer, Text
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 
@@ -107,18 +108,63 @@ from fastapi import Request, Response
 
 @app.post('/auth')
 async def mediamtx_auth(request: Request):
-    # Logowanie, które na 100% pojawi się w Dockerze (dzięki flush=True)
-    print("MEDIA MTX PUKA DO DRZWI!", flush=True)
-    
     try:
-        data = await request.json()
-        print(f"Dane z MediaMTX: {data}", flush=True)
-    except:
-        print("MediaMTX wysłał coś, co nie jest JSONem", flush=True)
+        body = await request.body()
+        data = json.loads(body)
+        
+        # 1. Pobieramy dane z głównych pól
+        user_login = data.get('user')
+        user_pass = data.get('password')
+        stream_path = data.get('path')
+        action = data.get('action')
+        
+        # 2. Jeśli pola są puste, szukamy w 'query' (kluczowe dla RTMP!)
+        query_str = data.get('query', '')
+        if query_str:
+            params = parse_qs(query_str)
+            if not user_login and 'user' in params:
+                user_login = params['user'][0]
+            if not user_pass and 'password' in params:
+                user_pass = params['password'][0]
 
-    # NA CZAS TESTU: Wpuszczaj każdego!
-    # Jeśli dron teraz ruszy, to znaczy, że problemem była logika bazy danych.
-    return Response(status_code=200)
+        print(f"--- PRÓBA AUTORYZACJI ---", flush=True)
+        print(f"User: {user_login}, Pass: {'****' if user_pass else 'BRAK'}, Path: {stream_path}", flush=True)
+
+        with SessionLocal() as db:
+            # Weryfikacja użytkownika
+            user = db.query(User).filter(User.username == user_login, User.password == user_pass).first()
+            if not user:
+                print(f"AUTH: Błędne poświadczenia dla {user_login}", flush=True)
+                return Response(status_code=401)
+
+            # Weryfikacja strumienia
+            # Używamy func.lower, aby uniknąć problemów z wielkością liter (istebna vs Istebna)
+            from sqlalchemy import func
+            stream = db.query(StreamPath).filter(func.lower(StreamPath.path_name) == func.lower(stream_path)).first()
+            
+            if not stream:
+                if user.role == 'admin':
+                    print(f"AUTH: Admin tworzy nową ścieżkę: {stream_path}", flush=True)
+                    return Response(status_code=200)
+                print(f"AUTH: Strumień {stream_path} nie istnieje w bazie!", flush=True)
+                return Response(status_code=401)
+
+            # Sprawdzenie uprawnień
+            if action == 'publish':
+                if user.role == 'admin' or user in stream.authorized_publishers or stream.owner_username == user.username:
+                    print(f"AUTH: PUBLISH OK: {user_login}", flush=True)
+                    return Response(status_code=200)
+            
+            elif action == 'read':
+                if user.role == 'admin' or user in stream.authorized_viewers or user in stream.authorized_publishers:
+                    print(f"AUTH: READ OK: {user_login}", flush=True)
+                    return Response(status_code=200)
+
+        return Response(status_code=401)
+
+    except Exception as e:
+        print(f"BŁĄD AUTH: {str(e)}", flush=True)
+        return Response(status_code=401)
 
 def get_active_streams():
     """Pobiera listę nazw aktywnych strumieni bezpośrednio z API MediaMTX."""
