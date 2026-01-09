@@ -22,6 +22,7 @@ services:
     environment:
       - DOMAIN=${DOMAIN}
       - STORAGE_SECRET=${STORAGE_SECRET}
+      - PYTHONUNBUFFERED=1
     volumes:
       - ./vms_db.db:/app/vms_db.db
       - ./credentials.json:/app/credentials.json # Klucz do Google Drive
