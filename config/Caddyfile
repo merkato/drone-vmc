@@ -9,8 +9,8 @@ dashboard.giswgorach.pl {
 
 # WebRTC i API MediaMTX
 stream.giswgorach.pl {
-    # Przekierowanie ruchu WebRTC
-    reverse_proxy mediamtx:8889
+    # Przekierowanie ruchu HLS
+    reverse_proxy mediamtx:8888
 }
 
 # Opcjonalnie: API MediaMTX

@@ -16,6 +16,9 @@ apiAddress: :9997
 hls: yes
 hlsAddress: :8888
 hlsAlwaysRemux: yes # Ważne: remuksuje RTMP do HLS natychmiast
+hlsPartDuration: 1s          # Zwiększenie stabilności części
+hlsSegmentDuration: 4s       # Standardowy czas segmentu
+hlsAllowOrigin: '*'          # Ważne dla iFrame
 
 # WebRTC
 webrtc: no
