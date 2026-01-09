@@ -28,10 +28,10 @@ services:
       - STORAGE_SECRET=${STORAGE_SECRET}
       - PYTHONUNBUFFERED=1
     volumes:
-      - .:/app
       - ./data:/app/data
       - ./credentials.json:/app/credentials.json # Klucz do Google Drive
       - recordings_data:/recordings
+    user: "${UID:-1000}:${GID:-1000}"
     restart: always
  
   # SILNIK WIDEO - RTMP, RTSP, WebRTC, DVR
