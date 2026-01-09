@@ -54,6 +54,51 @@ def get_recordings_list():
 
     # Sortowanie: najnowsze nagrania (z największą datą) na samej górze
     return sorted(recordings, key=lambda x: x['date'], reverse=True)
+@ui.refreshable
+def archive_interface():
+    """Interfejs przeglądania i odtwarzania nagrań."""
+    ui.label('Archiwum Nagrań Operacyjnych').classes('text-2xl font-black mb-6 text-white uppercase')
+    
+    recordings = get_recordings_list()
+    
+    if not recordings:
+        with ui.column().classes('w-full items-center p-12 border-2 border-dashed border-zinc-800 rounded-2xl'):
+            ui.icon('inventory_2', size='64px').classes('text-zinc-800')
+            ui.label('Brak nagrań na dysku serwera.').classes('text-zinc-600 font-bold')
+            return
+
+    # LISTA NAGRAŃ W FORMIE KART
+    with ui.column().classes('w-full gap-4'):
+        for rec in recordings:
+            with ui.card().classes('bg-zinc-900 border border-zinc-800 w-full p-4 rounded-xl hover:border-orange-900/50 transition-all'):
+                with ui.row().classes('w-full items-center justify-between'):
+                    # Informacje o pliku
+                    with ui.row().classes('items-center gap-4'):
+                        ui.icon('videocam', color='orange').classes('text-2xl')
+                        with ui.column().classes('gap-0'):
+                            ui.label(rec['name']).classes('text-lg font-bold text-zinc-100')
+                            ui.label(f"{rec['date']} | Rozmiar: {rec['size']}").classes('text-xs text-zinc-500')
+                    
+                    # Przyciski akcji
+                    with ui.row().classes('gap-2'):
+                        # Przycisk odtwarzania (Otwiera w nowym oknie lub dialogu)
+                        ui.button(icon='play_arrow', on_click=lambda r=rec: play_recording(r['name'])) \
+                            .props('flat round color=green').tooltip('Odtwórz')
+                        
+                        # Przycisk pobierania
+                        ui.button(icon='download', on_click=lambda r=rec: ui.download(f"/recordings/{r['name']}")) \
+                            .props('flat round color=blue').tooltip('Pobierz na dysk')
+
+def play_recording(filename):
+    """Otwiera okno dialogowe z odtwarzaczem wideo."""
+    with ui.dialog() as dialog, ui.card().classes('w-[800px] bg-black p-0'):
+        with ui.row().classes('w-full justify-between p-4 bg-zinc-900'):
+            ui.label(f'Odtwarzanie: {filename}').classes('text-white font-bold')
+            ui.button(icon='close', on_click=dialog.close).props('flat color=white')
+        
+        # Odtwarzacz NiceGUI
+        ui.video(f'/recordings/{filename}').classes('w-full aspect-video')
+    dialog.open()
 
 # --- 1. POBIERANIE AKTYWNYCH STRUMIENI Z API MEDIAMTX ---
 async def get_active_streams_from_api():
