@@ -100,42 +100,54 @@ async def run_retention_task():
     """Zadanie uruchamiane okresowo do czyszczenia/backupu plików."""
     logging.info("Rozpoczynam procedurę retencji danych...")
     
-    # 1. Otwieramy sesję tylko na chwilę, żeby pobrać parametry
-    with SessionLocal() as db:
-        config_obj = db.query(SystemConfig).first()
-        if not config_obj:
-            logging.warning("Retencja: Brak konfiguracji w bazie danych.")
-            return 
+    # 1. Otwieramy sesję tylko po to, żeby "wyjąć" wartości
+    try:
+        with SessionLocal() as db:
+            config_db = db.query(SystemConfig).first()
+            if not config_db:
+                logging.warning("Retencja: Brak konfiguracji w bazie danych.")
+                return
 
-        # KLUCZ: Przepisujemy dane do zwykłych zmiennych (typów prostych)
-        # Dzięki temu nie będziemy potrzebować aktywnej sesji 'db' w pętli
-        policy = config_obj.retention_policy
-        days = config_obj.retention_days
-        folder_id = config_obj.gdrive_folder_id
-        
-        # Wyliczamy próg raz, tutaj sesja jeszcze żyje
-        retention_secs = days * 24 * 3600
+            # KLUCZOWY MOMENT: Kopiujemy dane do zwykłych zmiennych (nie-obiektów bazy)
+            days = int(config_db.retention_days)
+            policy = str(config_db.retention_policy)
+            g_folder_id = str(config_db.gdrive_folder_id) if config_db.gdrive_folder_id else None
+            
+            # Obliczamy próg tutaj, póki mamy dostęp do bazy (na wszelki wypadek)
+            retention_secs = days * 24 * 3600
+    except Exception as e:
+        logging.error(f"Błąd podczas pobierania konfiguracji: {e}")
+        return
 
-    # 2. Tutaj sesja 'db' jest już zamknięta (wcięcie wróciło), 
-    # ale mamy wszystkie dane w lokalnych zmiennych: policy, retention_secs, folder_id.
-    
+    # 2. TUTAJ SESJA JEST JUŻ ZAMKNIĘTA. 
+    # Pracujemy na 'policy', 'retention_secs' i 'g_folder_id', które są zwykłymi tekstami/liczbami.
+    # SQLAlchemy nie ma już nic do gadania.
+
     now = time.time()
+    count = 0
+    
+    # RECORDINGS_DIR musi być zaimportowany z config.py
     for vid in RECORDINGS_DIR.rglob("*.mp4"):
         try:
             file_age = now - vid.stat().st_mtime
             
             if file_age > retention_secs:
-                if policy == "BACKUP" and folder_id:
+                if policy == "BACKUP" and g_folder_id:
                     logging.info(f"Archiwizacja na GDrive: {vid.name}")
-                    # Upewnij się, czy upload_to_gdrive nie potrzebuje 'await'!
-                    if upload_to_gdrive(vid, folder_id):
+                    # Jeśli upload_to_gdrive jest async, dodaj 'await'
+                    if upload_to_gdrive(vid, g_folder_id):
                         vid.unlink()
                         logging.info(f"Zarchiwizowano i usunięto: {vid.name}")
+                        count += 1
                 else:
                     vid.unlink()
                     logging.info(f"Usunięto stary plik (retencja): {vid.name}")
+                    count += 1
         except Exception as e:
-            logging.error(f"Błąd przy przetwarzaniu pliku {vid}: {e}")
+            logging.error(f"Błąd przy pliku {vid.name}: {e}")
+
+    if count > 0:
+        logging.info(f"Retencja zakończona. Przetworzono plików: {count}")
 
 def retention_settings_ui():
     with SessionLocal() as db:
