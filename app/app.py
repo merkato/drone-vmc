@@ -681,19 +681,20 @@ def archive_interface(username, role):
             .classes('w-full bg-zinc-950 border border-zinc-900').props('dark flat')
 
         # Slot dla przycisków
-        table.add_slot('body-cell-actions', f'''
-            <q-td :props="props">
-                <q-btn flat round icon="play_circle" color="orange" @click="$parent.$emit('play', props.row)">
-                    <q-tooltip>Odtwórz nagranie</q-tooltip>
-                </q-btn>
-                <q-btn flat round icon="download" color="blue" @click="$parent.$emit('download', props.row.path)">
-                    <q-tooltip>Pobierz na dysk</q-tooltip>
-                </q-btn>
-                {'<q-btn flat round icon="delete" color="red" @click="$parent.$emit(\'delete\', props.row)">' if role == 'admin' else ''}
-                    <q-tooltip>Usuń trwale</q-tooltip>
-                </q-btn>
-            </q-td>
-        ''')
+        del_btn_html = '<q-btn flat round icon="delete" color="red" @click="$parent.$emit(\'delete\', props.row)"><q-tooltip>Usuń trwale</q-tooltip></q-btn>'
+        actions_slot = f'''
+    <q-td :props="props">
+        <q-btn flat round icon="play_circle" color="orange" @click="$parent.$emit('play', props.row)">
+            <q-tooltip>Odtwórz nagranie</q-tooltip>
+        </q-btn>
+        <q-btn flat round icon="download" color="blue" @click="$parent.$emit('download', props.row.path)">
+            <q-tooltip>Pobierz na dysk</q-tooltip>
+        </q-btn>
+        {del_btn_html if role == 'admin' else ''}
+    </q-td>
+'''
+        # 3. Dodaj slot do tabeli
+        table.add_slot('body-cell-actions', actions_slot)
         # Dodaj to wewnątrz archive_interface, nad tabelą:
         with ui.row().classes('w-full justify-between items-center bg-zinc-900 p-4 rounded-lg border border-zinc-800'):
             with ui.column():
@@ -746,22 +747,22 @@ def user_management_interface():
             users = db.query(User).all()
             return [{'id': u.id, 'username': u.username, 'role': u.role, 'password': u.password} for u in users]
 
-    # --- FUNKCJA EDYCJI (DIALOG) ---
+    # --- FUNKCJA EDYCJI ---
     async def edit_user(user_data):
         with ui.dialog() as dialog, ui.card().classes('w-96 bg-zinc-900 border border-zinc-800'):
-            ui.label(f'EDYCJA: {user_data["username"]}').classes('text-orange-500 font-bold')
+            ui.label(f'EDYCJA UŻYTKOWNIKA: {user_data["username"]}').classes('text-orange-500 font-bold mb-4')
             
-            # Formularz wewnątrz dialogu
-            new_pass = ui.input('Nowe Hasło', value=user_data['password']).props('dark filled').classes('w-full')
+            # Wypełniamy pola aktualnymi danymi
+            new_pass = ui.input('Hasło', value=user_data['password']).props('dark filled password-toggle').classes('w-full mb-2')
             new_role = ui.select(
                 ['admin', 'pilot', 'viewer'], 
-                label='Rola', 
+                label='Rola systemowa', 
                 value=user_data['role']
             ).props('dark filled').classes('w-full')
             
             with ui.row().classes('w-full justify-end mt-4'):
                 ui.button('ANULUJ', on_click=dialog.close).props('flat color=white')
-                ui.button('ZAPISZ', on_click=lambda: dialog.submit({
+                ui.button('ZAPISZ ZMIANY', on_click=lambda: dialog.submit({
                     'password': new_pass.value,
                     'role': new_role.value
                 })).props('color=orange')
@@ -774,30 +775,29 @@ def user_management_interface():
                     db_user.password = result['password']
                     db_user.role = result['role']
                     db.commit()
-                    ui.notify(f'Zaktualizowano użytkownika {db_user.username}', color='positive')
+                    ui.notify(f'Zaktualizowano profil: {db_user.username}', color='positive')
                     user_table.rows = get_users()
 
-    # --- FUNKCJA USUWANIA (POTWIERDZENIE) ---
-    async def delete_user(user_id, username):
-        with ui.dialog() as dialog, ui.card().classes('bg-zinc-900 border border-red-900'):
-            ui.label(f'Czy na pewno usunąć użytkownika {username}?').classes('text-white')
-            with ui.row():
+    # --- FUNKCJA USUWANIA ---
+    async def delete_user(user_data):
+        with ui.dialog() as dialog, ui.card().classes('bg-zinc-900 border border-red-900 p-6'):
+            ui.label(f'CZY USUNĄĆ KONTO: {user_data["username"]}?').classes('text-white mb-4')
+            with ui.row().classes('w-full justify-center gap-4'):
                 ui.button('TAK, USUŃ', on_click=lambda: dialog.submit(True)).props('color=red')
-                ui.button('NIE', on_click=lambda: dialog.submit(False)).props('flat color=white')
+                ui.button('ANULUJ', on_click=lambda: dialog.submit(False)).props('flat color=white')
         
         if await dialog:
             with SessionLocal() as db:
-                db_user = db.query(User).filter(User.id == user_id).first()
+                db_user = db.query(User).filter(User.id == user_data['id']).first()
                 if db_user:
                     db.delete(db_user)
                     db.commit()
-                    ui.notify(f'Usunięto użytkownika {username}', color='warning')
+                    ui.notify(f'Użytkownik {user_data["username"]} został usunięty', color='warning')
                     user_table.rows = get_users()
 
     with ui.column().classes('w-full max-w-4xl mx-auto p-4 gap-4'):
         ui.label('ZARZĄDZANIE PERSONELEM').classes('text-xl font-black text-orange-500')
 
-        # Tabela użytkowników
         columns = [
             {'name': 'username', 'label': 'LOGIN', 'field': 'username', 'align': 'left', 'sortable': True},
             {'name': 'role', 'label': 'ROLA', 'field': 'role', 'align': 'left', 'sortable': True},
@@ -805,27 +805,24 @@ def user_management_interface():
         ]
 
         user_table = ui.table(columns=columns, rows=get_users(), row_key='id') \
-            .classes('w-full bg-zinc-950 border border-zinc-900').props('dark flat')
+            .classes('w-full bg-zinc-950 border border-zinc-900 shadow-2xl').props('dark flat')
 
-        # SLOT DLA PRZYCISKÓW (Edytuj / Usuń)
+        # --- FIX DLA SYNTAX ERROR ---
+        # Zamiast f-stringa z backslashem, używamy czystego HTML dla slotu
         user_table.add_slot('body-cell-actions', '''
             <q-td :props="props">
-                <q-btn flat round icon="edit" color="orange-4" size="sm" @click="$parent.$emit('edit', props.row)">
-                    <q-tooltip>Edytuj dane i uprawnienia</q-tooltip>
+                <q-btn flat round icon="edit" color="orange" size="sm" @click="$parent.$emit('edit_user', props.row)">
+                    <q-tooltip>Edytuj hasło i rolę</q-tooltip>
                 </q-btn>
-                <q-btn flat round icon="person_remove" color="red-8" size="sm" @click="$parent.$emit('delete', props.row)">
-                    <q-tooltip>Usuń konto użytkownika</q-tooltip>
+                <q-btn flat round icon="person_remove" color="red-8" size="sm" @click="$parent.$emit('delete_user', props.row)">
+                    <q-tooltip>Usuń użytkownika z systemu</q-tooltip>
                 </q-btn>
             </q-td>
         ''')
 
-        # Rejestracja zdarzeń z tabeli
-        user_table.on('edit', lambda e: edit_user(e.args))
-        user_table.on('delete', lambda e: delete_user(e.args['id'], e.args['username']))
-
-        # Przycisk dodawania (stary, powinien być wpięty w formularz wyżej)
-        ui.button('DODAJ NOWEGO PRACOWNIKA', on_click=lambda: ui.notify('Użyj formularza powyżej')) \
-            .classes('w-full bg-zinc-800 text-zinc-400 text-xs')
+        # Mapowanie zdarzeń
+        user_table.on('edit_user', lambda e: edit_user(e.args))
+        user_table.on('delete_user', lambda e: delete_user(e.args))
 
 # --- LOGIKA GRIDU OPERACYJNEGO ---
 
