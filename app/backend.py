@@ -96,58 +96,41 @@ def upload_to_gdrive(file_path, folder_id):
         logging.error(f"Gdrive Error: {e}")
         return False
 
+# backend.py
 async def run_retention_task():
-    """Zadanie uruchamiane okresowo do czyszczenia/backupu plików."""
-    logging.info("Rozpoczynam procedurę retencji danych...")
-    
-    # 1. Otwieramy sesję tylko po to, żeby "wyjąć" wartości
+    logging.info("--- DEBUG START: run_retention_task ---")
     try:
         with SessionLocal() as db:
+            logging.info("Krok 1: Sesja otwarta, pobieram rekord...")
             config_db = db.query(SystemConfig).first()
+            
             if not config_db:
-                logging.warning("Retencja: Brak konfiguracji w bazie danych.")
+                logging.warning("Krok 2: Brak rekordu konfiguracji!")
                 return
 
-            # KLUCZOWY MOMENT: Kopiujemy dane do zwykłych zmiennych (nie-obiektów bazy)
-            days = int(config_db.retention_days)
-            policy = str(config_db.retention_policy)
-            g_folder_id = str(config_db.gdrive_folder_id) if config_db.gdrive_folder_id else None
+            logging.info(f"Krok 3: Rekord pobrany (ID: {id(config_db)})")
             
-            # Obliczamy próg tutaj, póki mamy dostęp do bazy (na wszelki wypadek)
-            retention_secs = days * 24 * 3600
+            # WYCIĄGAMY DANE (zrzucamy je do zwykłych zmiennych)
+            p_days = int(config_db.retention_days)
+            p_policy = str(config_db.retention_policy)
+            p_folder = str(config_db.gdrive_folder_id) if config_db.gdrive_folder_id else None
+            
+            logging.info(f"Krok 4: Dane skopiowane do RAM: dni={p_days}, policy={p_policy}")
+
+        logging.info("Krok 5: Sesja zamknięta poprawnie.")
+        
+        # Pętla już poza sesją
+        now = time.time()
+        retention_secs = p_days * 24 * 3600
+        
+        for vid in RECORDINGS_DIR.rglob("*.mp4"):
+            # Tu pracujemy TYLKO na p_policy i p_days
+            pass 
+
     except Exception as e:
-        logging.error(f"Błąd podczas pobierania konfiguracji: {e}")
-        return
-
-    # 2. TUTAJ SESJA JEST JUŻ ZAMKNIĘTA. 
-    # Pracujemy na 'policy', 'retention_secs' i 'g_folder_id', które są zwykłymi tekstami/liczbami.
-    # SQLAlchemy nie ma już nic do gadania.
-
-    now = time.time()
-    count = 0
+        logging.error(f"!!! CRASH W RETENCJI !!! Typ: {type(e)}, Błąd: {e}", exc_info=True)
     
-    # RECORDINGS_DIR musi być zaimportowany z config.py
-    for vid in RECORDINGS_DIR.rglob("*.mp4"):
-        try:
-            file_age = now - vid.stat().st_mtime
-            
-            if file_age > retention_secs:
-                if policy == "BACKUP" and g_folder_id:
-                    logging.info(f"Archiwizacja na GDrive: {vid.name}")
-                    # Jeśli upload_to_gdrive jest async, dodaj 'await'
-                    if upload_to_gdrive(vid, g_folder_id):
-                        vid.unlink()
-                        logging.info(f"Zarchiwizowano i usunięto: {vid.name}")
-                        count += 1
-                else:
-                    vid.unlink()
-                    logging.info(f"Usunięto stary plik (retencja): {vid.name}")
-                    count += 1
-        except Exception as e:
-            logging.error(f"Błąd przy pliku {vid.name}: {e}")
-
-    if count > 0:
-        logging.info(f"Retencja zakończona. Przetworzono plików: {count}")
+    logging.info("--- DEBUG KONIEC: run_retention_task ---")
 
 def retention_settings_ui():
     with SessionLocal() as db:
