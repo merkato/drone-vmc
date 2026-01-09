@@ -1,23 +1,31 @@
 # app.py
 import os
-from pathlib import Path
 from nicegui import app, ui
-from fastapi.staticfiles import StaticFiles
+from fastapi import Request, Response
+from fastapi.responses import RedirectResponse
+import json
+from urllib.parse import parse_qs
 
 # Modele i inicjalizacja bazy
-from models import init_db
+from models import (
+    init_db, 
+    SessionLocal,
+    User, 
+    StreamPath
+)
 from uzytkownicy import create_default_user
 
 # Interfejsy
-from uzytkownicy import user_management_interface, is_authenticated, change_my_password_ui
+from config import STORAGE_SECRET, RECORDINGS_DIR
+from uzytkownicy import (
+    user_management_interface, 
+    create_default_user, 
+    is_authenticated, 
+    change_my_password_ui
+)
 from strumienie import streams_management_interface
 from wideo import archive_interface, live_grid_interface
-from backend import system_info_ui, run_retention_task
-
-# 1. KONFIGURACJA ŚRODOWISKA (Globalna dla serwera)
-DOMAIN = os.getenv('DOMAIN', 'localhost')
-STORAGE_SECRET = os.getenv('STORAGE_SECRET', 'super_secret_firanka')
-RECORDINGS_DIR = Path("/recordings")
+from backend import system_info_ui, run_retention_task, retention_settings_ui
 
 # 2. INICJALIZACJA SYSTEMOWA
 init_db()            # Tworzy tabele
@@ -107,7 +115,7 @@ async def auth_middleware(request: Request, call_next):
 
     if not is_authenticated:
         print(f"[DEBUG] REDIRECTING: {path} -> /login")
-        return responses.RedirectResponse('/login')
+        return RedirectResponse('/login')
 
     print(f"[DEBUG] PASSING: {path}")
     return await call_next(request)
@@ -183,10 +191,10 @@ def main_page():
     # 2. Zakładki (Tabs)
     with ui.tabs().classes('w-full bg-zinc-900 text-zinc-400 border-b border-zinc-800') as tabs:
         t_grid = ui.tab('GRID OPERACYJNY', icon='grid_view')
-        if user_role in ['admin', 'operator']:
+        if role in ['admin', 'operator']:
             t_archive = ui.tab('ARCHIWUM', icon='history')
             t_streams = ui.tab('STRUMIENIE', icon='videocam')
-        if user_role == 'admin':
+        if role == 'admin':
             t_admin = ui.tab('ZARZĄDZANIE', icon='settings')
 
     # 3. Panele (Tab Panels)
@@ -218,13 +226,11 @@ ui.timer(432000.0, run_retention_task)
 
 # START SYSTEMU
 if __name__ in {"__main__", "__mp_main__"}:
-# Wywołaj to przed ui.run()
-    create_default_user()
     ui.run(
         host='0.0.0.0', 
         port=8080, 
-        title='Wiejski Drone VMS do podglądania sąsiadek',
-        storage_secret='PesaToNajgorszyProducentTaboruNaSwiecie',
+        title='OSP Istebna Centrum MCC',
+        storage_secret=STORAGE_SECRET,
         favicon='static/logo.png',
         reload=False  # Wyłączamy reload wewnątrz Dockera dla większej stabilności
     )
