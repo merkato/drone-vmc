@@ -27,11 +27,17 @@ from uzytkownicy import (
 )
 from strumienie import streams_management_interface
 from wideo import archive_interface, live_grid_interface
-from backend import system_info_ui, run_retention_task, retention_settings_ui
+from backend import (
+    system_info_ui, 
+    run_retention_task, 
+    retention_settings_ui,
+    init_system_config
+)
 
 # 2. INICJALIZACJA SYSTEMOWA
 init_db()            # Tworzy tabele
 create_default_user() # Tworzy admina
+init_system_config() #Tworzy skrzynkę
 
 # 3. MOUNTOWANIE PLIKÓW (Serwer musi wiedzieć, skąd brać wideo i ikony)
 RECORDINGS_DIR.mkdir(exist_ok=True)
@@ -150,7 +156,7 @@ def login_page():
                         'user_id': user.id  # Kluczowe dla filtrowania streamów w Gridzie
                     })
             
-                    logging.info(f"Użytkownik {user_db.username} zalogowany poprawnie.")
+                    logging.info(f"Użytkownik {user.username} zalogowany poprawnie.")
                     ui.navigate.to('/')
                 else:
                     logging.info(f"Błąd logowania - jesteś intruzem")

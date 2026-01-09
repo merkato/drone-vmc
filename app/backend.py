@@ -23,6 +23,21 @@ stats_history = defaultdict(list)
 last_bytes = {}
 alert_logs = []
 
+def init_system_config():
+    """Tworzy domyślne ustawienia systemu, jeśli tabela jest pusta."""
+    with SessionLocal() as db:
+        config = db.query(SystemConfig).first()
+        if not config:
+            logging.info(">>> [BOOTSTRAP] Inicjalizacja domyślnej konfiguracji systemu...")
+            new_config = SystemConfig(
+                retention_days=30,
+                retention_policy="DELETE",  # Domyślnie tylko usuwamy
+                gdrive_folder_id=""
+            )
+            db.add(new_config)
+            db.commit()
+            logging.info(">>> [BOOTSTRAP] Domyślna konfiguracja stworzona: 30 dni, tryb DELETE.")
+
 def add_alert(drone, msg, level='warning'):
     """Rejestruje alert w systemie i wyświetla powiadomienie."""
     alert = {
