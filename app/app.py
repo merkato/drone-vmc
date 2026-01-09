@@ -150,12 +150,10 @@ def login_page():
                         'user_id': user.id  # Kluczowe dla filtrowania streamów w Gridzie
                     })
             
-                    ui.notify(f'Witaj {user.username}! System operacyjny gotowy.', color='positive', icon='check_circle')
-            
-                     # Przekierowanie NiceGUI - czyści stan starej strony i ładuje '/' z nową sesją
+                    logging.info(f"Użytkownik {user_db.username} zalogowany poprawnie.")
                     ui.navigate.to('/')
                 else:
-                    ui.notify('Błędne dane – sąsiadka Cię nie wpuści!', color='negative', icon='warning')
+                    logging.info(f"Błąd logowania - jesteś intruzem")
         
         # Obsługa Entera na obu polach
         u.on('keydown.enter', do_login)
