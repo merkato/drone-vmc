@@ -5,7 +5,11 @@ from sqlalchemy.orm import sessionmaker, relationship
 
 # 1. Konfiguracja ścieżki bazy danych (bezpieczna dla Dockera)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR, exist_ok=True)
 DB_PATH = os.path.join(BASE_DIR, "database.db")
+
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 # 2. Inicjalizacja silnika SQLAlchemy

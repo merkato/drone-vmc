@@ -28,7 +28,8 @@ services:
       - STORAGE_SECRET=${STORAGE_SECRET}
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./vms.db:/app/vms.db
+      - .:/app
+      - ./data:/app/data
       - ./credentials.json:/app/credentials.json # Klucz do Google Drive
       - recordings_data:/recordings
     restart: always
