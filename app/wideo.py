@@ -7,6 +7,10 @@ from nicegui import ui
 from models import SessionLocal, User, StreamPath
 from config import RECORDINGS_DIR, DOMAIN
 
+# Cache stanów, żeby nie przeładowywać tego, co już działa
+video_containers = {}  # Przechowuje referencje do kontenerów wideo
+last_statuses = {}     # Przechowuje ostatni znany status (Live/Offline) każdego drona
+
 def get_recordings_hierarchy():
     """
     Skanuje rekurencyjnie katalog nagrań i buduje strukturę:
@@ -151,7 +155,7 @@ async def get_active_streams_from_api():
 
 async def live_grid_interface(username, role, password):
     """Główny interfejs budowany RAZ przy wejściu w zakładkę."""
-    ui.label('PANEL OPERACYJNY - PODGLĄD LIVE').classes('text-3xl font-black mb-6 text-white uppercase')
+    ui.label('PANEL MONITORINGU').classes('text-3xl font-black mb-6 text-white uppercase')
 
     with SessionLocal() as db:
         user = db.query(User).filter(User.username == username).first()
