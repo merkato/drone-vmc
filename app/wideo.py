@@ -110,55 +110,31 @@ def play_recording(relative_path: str):
 
 @ui.refreshable
 def archive_interface(username: str, role: str):
-    ui.label('Archiwum Nagrań Operacyjnych').classes('text-3xl font-black mb-8 text-white uppercase tracking-tighter')
+    ui.label('Archiwum Nagrań').classes('text-3xl font-black mb-8 text-white uppercase')
     
-    # Pobieramy nową strukturę słownikową
     hierarchy = get_recordings_hierarchy()
-    
     if not hierarchy:
-        with ui.column().classes('w-full items-center p-12 border-2 border-dashed border-zinc-800 rounded-3xl'):
-            ui.icon('inventory_2', size='64px').classes('text-zinc-800')
-            ui.label('Brak nagrań na dysku serwera.').classes('text-zinc-600 font-bold uppercase')
-            return
+        ui.label('Brak nagrań.').classes('text-zinc-500 p-8')
+        return
 
-    # GŁÓWNA KONTENER GRUP (np. ISTEBNA, KONIAKÓW)
-    with ui.column().classes('w-full gap-4'):
-        for group_name, drones in hierarchy.items():
-            with ui.expansion(group_name.upper(), icon='folder_shared').classes('w-full bg-zinc-950 border border-zinc-800 rounded-2xl text-orange-500 font-black'):
-                
-                # PODGRUPY (np. MINI, MATRICE)
+    for group_name, drones in hierarchy.items():
+        with ui.expansion(group_name.upper(), icon='folder').classes('w-full bg-zinc-950 border border-zinc-800 rounded-2xl mb-4'):
+            # SIATKA KAFELKÓW: 2 kolumny dla podgrup (dronów)
+            with ui.grid(columns=2).classes('w-full gap-4 p-4'):
                 for drone_name, files in drones.items():
-                    with ui.expansion(f"DRON: {drone_name.upper()}", icon='visibility').classes('ml-4 my-2 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-300 font-bold'):
+                    with ui.card().classes('bg-zinc-900 border border-zinc-800 p-4 rounded-xl shadow-lg'):
+                        ui.label(drone_name.upper()).classes('text-orange-500 font-black mb-2 border-b border-zinc-800 pb-1')
                         
-                        # LISTA PLIKÓW
-                        with ui.column().classes('w-full gap-2 p-4'):
+                        # Lista plików wewnątrz kafelka drona
+                        with ui.column().classes('w-full gap-2'):
                             for rec in files:
-                                file_name = rec.get('name')
-                                rel_path = rec.get('relative_path') # np. "istebna/mini/nagranie.mp4"
-                                
-                                with ui.card().classes('bg-zinc-800 border border-zinc-700 w-full p-4 rounded-xl shadow-md hover:border-zinc-500 transition-all'):
-                                    with ui.row().classes('w-full items-center justify-between'):
-                                        # Info o pliku
-                                        with ui.row().classes('items-center gap-4'):
-                                            ui.icon('movie', color='orange').classes('text-xl')
-                                            with ui.column().classes('gap-0'):
-                                                ui.label(file_name).classes('text-base font-bold text-zinc-100')
-                                                ui.label(f"{rec['date']} | {rec['size']}").classes('text-[10px] text-zinc-500 uppercase font-mono')
-                                        
-                                        # Przyciski Akcji
-                                        with ui.row().classes('gap-3'):
-                                            # Odtwarzanie - przekazujemy rel_path
-                                            ui.button(icon='play_circle', on_click=lambda p=rel_path: play_recording(p)) \
-                                                .props('flat round color=green size=md').tooltip('Odtwórz')
-                                            
-                                            # Pobieranie - URL uwzględnia strukturę folderów
-                                            ui.button(icon='download', on_click=lambda p=rel_path: ui.download(f"/recordings/{p}")) \
-                                                .props('flat round color=blue size=md').tooltip('Pobierz')
-                                            
-                                            # Usuwanie (tylko dla Admina)
-                                            if role == 'admin':
-                                                ui.button(icon='delete_forever', on_click=lambda p=rel_path: delete_recording(p, username, role)) \
-                                                    .props('flat round color=red-9 size=md').tooltip('Usuń')
+                                with ui.row().classes('w-full items-center justify-between no-wrap'):
+                                    ui.label(rec['name']).classes('text-[10px] text-zinc-100 truncate flex-grow')
+                                    with ui.row().classes('gap-1'):
+                                        ui.button(icon='play_arrow', on_click=lambda r=rec: play_recording(r['relative_path'])) \
+                                            .props('flat dense size=sm color=green')
+                                        ui.button(icon='download', on_click=lambda r=rec: ui.download(f"/recordings/{r['relative_path']}")) \
+                                            .props('flat dense size=sm color=blue')
 
 # --- 1. POBIERANIE AKTYWNYCH STRUMIENI Z API MEDIAMTX ---
 async def get_active_streams_from_api():
