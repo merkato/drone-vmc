@@ -7,10 +7,6 @@ from nicegui import ui
 from models import SessionLocal, User, StreamPath
 from config import RECORDINGS_DIR, DOMAIN
 
-# Cache stanów, żeby nie przeładowywać tego, co już działa
-video_containers = {}  # Przechowuje referencje do kontenerów wideo
-last_statuses = {}     # Przechowuje ostatni znany status (Live/Offline) każdego drona
-
 def get_recordings_hierarchy():
     """
     Skanuje rekurencyjnie katalog nagrań i buduje strukturę:
@@ -157,74 +153,96 @@ async def get_active_streams_from_api():
         print(f"Błąd API MediaMTX: {e}")
     return []
 
-# --- 2. ODŚWIEŻALNA TREŚĆ GRIDU ---
-@ui.refreshable
+# Słowniki do trzymania referencji (poza funkcją)
+slots = {} 
+last_status = {}
+
 async def live_grid_content(username: str, password: str):
-    """Generuje siatkę podglądu na żywo dla konkretnego użytkownika."""
+    """Buduje szkielet siatki. To wywołujemy RAZ."""
     active_paths = await get_active_streams_from_api()
     
     with SessionLocal() as db:
-        # Pobieramy tylko te strumienie z bazy, do których zalogowany użytkownik ma uprawnienia Widza
         user = db.query(User).filter(User.username == username).first()
-        if not user:
-            ui.label('Błąd autoryzacji użytkownika.').classes('text-red-500')
-            return
-
-        # Pobieramy strumienie, gdzie user jest w authorized_viewers
-        accessible_streams = db.query(StreamPath).join(
-            StreamPath.authorized_viewers
-        ).filter(User.id == user.id).all()
+        if not user: return
+        accessible_streams = db.query(StreamPath).join(StreamPath.authorized_viewers).filter(User.id == user.id).all()
 
     if not accessible_streams:
-        ui.label('Nie masz uprawnień do żadnego aktywnego strumienia.').classes('text-zinc-500 p-8')
+        ui.label('Brak uprawnień do strumieni.').classes('text-zinc-500 p-8')
         return
 
-    # SIATKA: 2 KOLUMNY, SKALOWALNA (W-FULL)
-    with ui.grid(columns='1fr 1fr').classes('w-full gap-4 p-2'):
+    # SIATKA: Budujemy ją raz
+    with ui.grid(columns='1fr 1fr').classes('w-full gap-4 p-2') as grid:
         for stream in accessible_streams:
-            # Wyświetlamy tylko, jeśli dron faktycznie nadaje (jest w API)
             is_live = stream.path_name in active_paths
             
-            with ui.card().classes('bg-zinc-900 border-2 rounded-xl overflow-hidden').style(
-                f'border-color: {"#f97316" if is_live else "#27272a"}'
-            ):
-                # Nagłówek karty z nazwą i statusem
+            # KARTA (zostaje na stałe)
+            card = ui.card().classes('bg-zinc-900 border-2 rounded-xl overflow-hidden shadow-2xl transition-all')
+            card.style(f'border-color: {"#f97316" if is_live else "#27272a"}')
+            
+            with card:
+                # Nagłówek (zostaje na stałe)
                 with ui.row().classes('w-full justify-between p-2 bg-zinc-950/50'):
                     ui.label(stream.description or stream.path_name).classes('text-sm font-black text-white uppercase')
-                    ui.badge('LIVE' if is_live else 'OFFLINE', color='orange' if is_live else 'zinc-700')
+                    badge = ui.badge('LIVE' if is_live else 'OFFLINE', color='orange' if is_live else 'zinc-700')
 
-                # ODTWARZACZ HLS Z AUTORYZACJĄ
-                if is_live:
-                    hls_url = f"https://stream.{DOMAIN}/{stream.path_name}/index.m3u8?user={username}&password={password}"
-                    video_id = f"video_{stream.id}"
+                # SLOT NA TREŚĆ (to będziemy czyścić tylko przy zmianie statusu)
+                video_slot = ui.column().classes('w-full aspect-video items-center justify-center bg-black/40')
+                
+                # Przycisk Fullscreen (zawsze pod slotem)
+                hls_url = f"https://stream.{DOMAIN}/{stream.path_name}/index.m3u8?user={username}&password={password}"
+                fs_btn = ui.button('PEŁNY EKRAN', icon='fullscreen', 
+                                  on_click=lambda u=hls_url: ui.run_javascript(f'window.open("{u}", "_blank")')) \
+                            .props('flat color=orange').classes('text-xs font-bold mt-2 mx-auto')
+                fs_btn.set_visibility(is_live)
+
+                # Zapamiętujemy slot i badge dla tego drona
+                slots[stream.id] = {
+                    'video_slot': video_slot,
+                    'badge': badge,
+                    'card': card,
+                    'fs_btn': fs_btn,
+                    'path': stream.path_name
+                }
+                
+                # Inicjalne wypełnienie slotu
+                update_card_content(stream.id, is_live, username, password)
+                last_status[stream.id] = is_live
+
+def update_card_content(stream_id, is_live, username, password):
+    """Wypełnia slot wideo lub placeholderem."""
+    data = slots[stream_id]
+    data['video_slot'].clear()
     
-                    with ui.column().classes('w-full items-center'):
-                        # Używamy ui.video - czysto i profesjonalnie
-                        ui.video(hls_url).classes('w-full aspect-video rounded-xl shadow-lg') \
-                        .props('autoplay muted playsinline loop controls') # controls opcjonalnie
-        
-                        # Przycisk Fullscreen pod wideo
-                        ui.button('PEŁNY EKRAN', icon='fullscreen', 
-                                on_click=lambda url=hls_url: ui.run_javascript(f'window.open("{url}", "_blank")')) \
-                            .props('flat color=orange').classes('text-xs font-bold mt-2')
-                else:
-                    # Placeholder gdy dron nie nadaje
-                    with ui.column().classes('w-full aspect-video items-center justify-center bg-black/40'):
-                        ui.icon('videocam_off', size='48px').classes('text-zinc-800')
-                        ui.label('Oczekiwanie na sygnał...').classes('text-[10px] text-zinc-700 uppercase')
+    with data['video_slot']:
+        if is_live:
+            hls_url = f"https://stream.{DOMAIN}/{data['path']}/index.m3u8?user={username}&password={password}"
+            ui.video(hls_url).classes('w-full h-full rounded-xl').props('autoplay muted playsinline loop controls')
+        else:
+            ui.icon('videocam_off', size='48px').classes('text-zinc-800')
+            ui.label('Oczekiwanie na sygnał...').classes('text-[10px] text-zinc-700 uppercase')
 
 async def live_grid_interface(username: str, role: str, password: str):
-    """Główny punkt wejścia dla podglądu operacyjnego."""
     ui.label('Panel Operacyjny - Podgląd na Żywo').classes('text-2xl font-black mb-4 uppercase tracking-tighter')
     
-    # Przycisk ręcznego odświeżania (jak w porządnym systemie OSP)
-    with ui.row().classes('mb-4 items-center gap-4'):
-        ui.button('ODŚWIEŻ LISTĘ', icon='refresh', on_click=lambda: live_grid_content.refresh(username, password)) \
-            .props('outline color=orange')
-        ui.label('System sprawdza aktywność dronów co 10 sekund').classes('text-[10px] text-zinc-600 italic')
+    # Przycisk "Twardego" odświeżenia (buduje wszystko od nowa w razie W)
+    ui.button('ZRESETUJ WIDOK', icon='refresh', on_click=lambda: ui.navigate.to('/')) \
+        .props('outline color=orange').classes('mb-4')
 
-    # Wywołanie odświeżalnej treści
+    # Budujemy grid raz
     await live_grid_content(username, password)
     
-    # Timer do automatycznego odświeżania (sprawdzanie kto dołączył/odszedł)
-    ui.timer(10.0, lambda: live_grid_content.refresh(username, password))
+    # TIMER: Inteligente sprawdzanie zmian
+    async def check_for_updates():
+        active_paths = await get_active_streams_from_api()
+        for s_id, data in slots.items():
+            is_live_now = data['path'] in active_paths
+            if is_live_now != last_status[s_id]:
+                # STATUS SIĘ ZMIENIŁ - tylko wtedy dotykamy DOM
+                update_card_content(s_id, is_live_now, username, password)
+                data['badge'].set_text('LIVE' if is_live_now else 'OFFLINE')
+                data['badge'].props(f'color={"orange" if is_live_now else "zinc-700"}')
+                data['card'].style(f'border-color: {"#f97316" if is_live_now else "#27272a"}')
+                data['fs_btn'].set_visibility(is_live_now)
+                last_status[s_id] = is_live_now
+
+    ui.timer(5.0, check_for_updates)
