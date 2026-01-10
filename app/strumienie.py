@@ -102,7 +102,25 @@ def streams_management_interface(username, role):
             selectinload(StreamPath.authorized_viewers),
             selectinload(StreamPath.authorized_publishers)
         ).all()
+    
+    ui.label('Utworzenie strumienia').classes('text-3xl font-black mb-8 text-white uppercase tracking-tighter')
 
+    # --- PRZYWRÓCONA SEKCJA: DODAWANIE NOWEGO STRUMIENIA ---
+    with ui.card().classes('w-full bg-zinc-950 border-2 border-orange-900/20 p-8 mb-10 rounded-3xl shadow-2xl'):
+        ui.label('REJESTRACJA NOWEGO DRONA W SYSTEMIE').classes('text-sm font-black text-orange-500 mb-6 tracking-widest')
+        
+        with ui.row().classes('w-full items-end gap-6'):
+            # p_in i d_in to obiekty pól tekstowych, których .value przekażemy do add_new_stream
+            p_in = ui.input('Ścieżka (path_name)', placeholder='np. istebna/dron1') \
+                .classes('flex-grow text-lg').props('dark outlined color=orange')
+            
+            d_in = ui.input('Opis / Model drona', placeholder='np. DJI Mavic 3 Enterprise') \
+                .classes('flex-grow text-lg').props('dark outlined color=orange')
+            
+            # Przycisk wywołujący Twoją funkcję add_new_stream
+            ui.button(icon='add', on_click=lambda: add_new_stream(p_in.value, d_in.value)) \
+                .props('round size=xl color=orange').classes('shadow-lg shadow-orange-900/40 hover:scale-110 transition-transform')
+    
     ui.label('Zarządzanie Strumieniami').classes('text-3xl font-black mb-8 text-white uppercase tracking-tighter')
 
     with ui.grid(columns='1fr 1fr').classes('w-full gap-8'):
