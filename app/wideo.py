@@ -7,105 +7,158 @@ from nicegui import ui
 from models import SessionLocal, User, StreamPath
 from config import RECORDINGS_DIR, DOMAIN
 
-# --- LOGIKA SYSTEMU WIDEO ---
-def get_recordings_list():
-    """Pobiera listę plików i pakuje je w słowniki z kluczami 'name', 'size', 'date'."""
+def get_recordings_hierarchy():
+    """
+    Skanuje rekurencyjnie katalog nagrań i buduje strukturę:
+    {
+       'Grupa (np. Istebna)': {
+           'Dron (np. Mini)': [lista plików],
+           'Dron (np. Matrice)': [lista plików]
+       }
+    }
+    """
+    hierarchy = {}
+
     if not os.path.exists(RECORDINGS_DIR):
-        return []
-    
-    recordings = []
-    try:
-        for f in os.listdir(RECORDINGS_DIR):
-            # Filtrujemy tylko pliki wideo
-            if f.endswith(('.mp4', '.mkv', '.ts')):
-                full_path = os.path.join(RECORDINGS_DIR, f)
+        return hierarchy
+
+    # os.walk przejdzie przez wszystkie podfoldery automatycznie
+    for root, dirs, files in os.walk(RECORDINGS_DIR):
+        # Filtrujemy tylko pliki wideo
+        video_files = [f for f in files if f.endswith(('.mp4', '.mkv', '.ts'))]
+        
+        if not video_files:
+            continue
+
+        # Obliczamy ścieżkę względną od folderu głównego (np. "istebna/mini")
+        rel_path = os.path.relpath(root, RECORDINGS_DIR)
+        parts = rel_path.split(os.sep)
+
+        # Określamy Grupę i Drona na podstawie struktury folderów
+        group_name = parts[0] if len(parts) > 0 and parts[0] != '.' else "Nieprzypisane"
+        drone_name = parts[1] if len(parts) > 1 else "Ogólne"
+
+        # Inicjalizacja kluczy w słowniku
+        if group_name not in hierarchy:
+            hierarchy[group_name] = {}
+        if drone_name not in hierarchy[group_name]:
+            hierarchy[group_name][drone_name] = []
+
+        for f in video_files:
+            full_path = os.path.join(root, f)
+            try:
                 stats = os.stat(full_path)
-                
-                # Tworzymy słownik - KAŻDY musi mieć te same klucze
-                recordings.append({
-                    'name': str(f),
+                file_info = {
+                    'name': f,
+                    'relative_path': os.path.join(rel_path, f), # potrzebne do ui.download i odtwarzacza
                     'size': f"{stats.st_size / (1024*1024):.1f} MB",
                     'date': datetime.fromtimestamp(stats.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
-                    'raw_date': stats.st_mtime # do sortowania
-                })
-    except Exception as e:
-        print(f"Błąd skanowania katalogu nagrań: {e}")
-        return []
+                    'raw_date': stats.st_mtime
+                }
+                hierarchy[group_name][drone_name].append(file_info)
+            except Exception as e:
+                print(f"Błąd statystyk pliku {f}: {e}")
 
-    # Sortujemy od najnowszych
-    return sorted(recordings, key=lambda x: x['raw_date'], reverse=True)
+        # Sortowanie nagrań wewnątrz drona (od najnowszych)
+        hierarchy[group_name][drone_name].sort(key=lambda x: x['raw_date'], reverse=True)
 
-async def delete_recording(filename: str, username: str, role: str):
+    return hierarchy
+
+async def delete_recording(relative_path: str, username: str, role: str):
     """
-    Usuwa plik nagrania z dysku po potwierdzeniu przez użytkownika.
+    Usuwa plik nagrania z uwzględnieniem podfolderów (np. istebna/mini/plik.mp4).
     """
     def perform_deletion():
         try:
-            full_path = os.path.join(RECORDINGS_DIR, filename)
+            # relative_path to np. "istebna/mini/nagranie.mp4"
+            full_path = os.path.join(RECORDINGS_DIR, relative_path)
+            
             if os.path.exists(full_path):
                 os.remove(full_path)
-                ui.notify(f"Usunięto nagranie: {filename}", type='info')
-                # ODŚWIEŻAMY INTERFEJS (musimy przekazać argumenty!)
+                ui.notify(f"Zniszczono nagranie: {relative_path}", type='info')
+                
+                # ODŚWIEŻAMY INTERFEJS - lista zniknie z widoku
                 archive_interface.refresh(username, role)
             else:
-                ui.notify("Błąd: Plik nie istnieje na dysku.", type='negative')
+                ui.notify(f"Błąd: Nie znaleziono pliku w {relative_path}", type='negative')
         except Exception as e:
-            ui.notify(f"Błąd podczas usuwania: {e}", type='negative')
+            ui.notify(f"Awaria systemu plików: {e}", type='negative')
 
-    with ui.dialog() as confirm_dialog, ui.card().classes('p-6 bg-zinc-900 border-2 border-red-900/50'):
-        ui.label(f'CZY NA PEWNO USUNĄĆ?').classes('text-lg font-black text-white uppercase')
-        ui.label(f'Plik: {filename}').classes('text-sm text-zinc-400 mb-4')
-        with ui.row().classes('w-full justify-end gap-3'):
-            ui.button('ANULUJ', on_click=confirm_dialog.close).props('flat color=white')
+    # DIALOG POTWIERDZENIA - Duży i czytelny dla OSP
+    with ui.dialog() as confirm_dialog, ui.card().classes('p-8 bg-zinc-950 border-2 border-red-900/50 rounded-3xl shadow-2xl'):
+        ui.label('POTWIERDŹ USUNIĘCIE').classes('text-xl font-black text-white uppercase tracking-tighter')
+        ui.label(f'Lokalizacja: {relative_path}').classes('text-xs font-mono text-zinc-500 mb-6')
+        
+        with ui.row().classes('w-full justify-end gap-4'):
+            ui.button('ANULUJ', on_click=confirm_dialog.close).props('flat color=white').classes('font-bold')
             ui.button('USUŃ DEFINITYWNIE', on_click=lambda: [perform_deletion(), confirm_dialog.close()]) \
-                .props('color=red-9 shadow-lg')
+                .props('color=red-9 shadow-lg').classes('px-6 font-black')
     
     confirm_dialog.open()
 
+# --- POPRAWIONY ODTWARZACZ ---
+def play_recording(relative_path: str):
+    """Otwiera okno z odtwarzaczem, obsługując podfoldery."""
+    with ui.dialog() as dialog, ui.card().classes('w-[900px] bg-black p-0 border-2 border-zinc-800 rounded-3xl overflow-hidden'):
+        with ui.row().classes('w-full justify-between p-4 bg-zinc-900 items-center'):
+            ui.label(f'PODGLĄD: {relative_path}').classes('text-zinc-400 font-bold text-xs truncate max-w-[700px]')
+            ui.button(icon='close', on_click=dialog.close).props('flat color=white round')
+        
+        # dynamiczny URL do pliku w podfolderze
+        ui.video(f'/recordings/{relative_path}').classes('w-full aspect-video')
+    dialog.open()
+
 @ui.refreshable
 def archive_interface(username: str, role: str):
-    ui.label('Archiwum Nagrań Operacyjnych').classes('text-2xl font-black mb-6 text-white uppercase')
+    ui.label('Archiwum Nagrań Operacyjnych').classes('text-3xl font-black mb-8 text-white uppercase tracking-tighter')
     
-    recordings = get_recordings_list()
+    # Pobieramy nową strukturę słownikową
+    hierarchy = get_recordings_hierarchy()
     
-    if not recordings:
-        with ui.column().classes('w-full items-center p-12 border-2 border-dashed border-zinc-800 rounded-2xl'):
+    if not hierarchy:
+        with ui.column().classes('w-full items-center p-12 border-2 border-dashed border-zinc-800 rounded-3xl'):
             ui.icon('inventory_2', size='64px').classes('text-zinc-800')
-            ui.label('Brak nagrań na dysku serwera.').classes('text-zinc-600 font-bold')
+            ui.label('Brak nagrań na dysku serwera.').classes('text-zinc-600 font-bold uppercase')
             return
 
+    # GŁÓWNA KONTENER GRUP (np. ISTEBNA, KONIAKÓW)
     with ui.column().classes('w-full gap-4'):
-        for rec in recordings:
-            # Używamy rec.get('name'), aby uniknąć KeyError w razie błędu
-            file_name = rec.get('name', 'Nieznany plik')
-            file_date = rec.get('date', '--')
-            file_size = rec.get('size', '0 MB')
-
-            with ui.card().classes('bg-zinc-900 border border-zinc-800 w-full p-4 rounded-xl shadow-lg'):
-                with ui.row().classes('w-full items-center justify-between'):
-                    with ui.row().classes('items-center gap-4'):
-                        ui.icon('videocam', color='orange').classes('text-2xl')
-                        with ui.column().classes('gap-0'):
-                            ui.label(file_name).classes('text-lg font-bold text-zinc-100')
-                            ui.label(f"{file_date} | {file_size}").classes('text-xs text-zinc-500')
-                    
-                    with ui.row().classes('gap-2'):
-                        ui.button(icon='play_arrow', on_click=lambda f=file_name: play_recording(f)) \
-                            .props('flat round color=green')
+        for group_name, drones in hierarchy.items():
+            with ui.expansion(group_name.upper(), icon='folder_shared').classes('w-full bg-zinc-950 border border-zinc-800 rounded-2xl text-orange-500 font-black'):
+                
+                # PODGRUPY (np. MINI, MATRICE)
+                for drone_name, files in drones.items():
+                    with ui.expansion(f"DRON: {drone_name.upper()}", icon='visibility').classes('ml-4 my-2 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-300 font-bold'):
                         
-                        ui.button(icon='download', on_click=lambda f=file_name: ui.download(f"/recordings/{f}")) \
-                            .props('flat round color=blue')
-
-def play_recording(filename):
-    """Otwiera okno dialogowe z odtwarzaczem wideo."""
-    with ui.dialog() as dialog, ui.card().classes('w-[800px] bg-black p-0'):
-        with ui.row().classes('w-full justify-between p-4 bg-zinc-900'):
-            ui.label(f'Odtwarzanie: {filename}').classes('text-white font-bold')
-            ui.button(icon='close', on_click=dialog.close).props('flat color=white')
-        
-        # Odtwarzacz NiceGUI
-        ui.video(f'/recordings/{filename}').classes('w-full aspect-video')
-    dialog.open()
+                        # LISTA PLIKÓW
+                        with ui.column().classes('w-full gap-2 p-4'):
+                            for rec in files:
+                                file_name = rec.get('name')
+                                rel_path = rec.get('relative_path') # np. "istebna/mini/nagranie.mp4"
+                                
+                                with ui.card().classes('bg-zinc-800 border border-zinc-700 w-full p-4 rounded-xl shadow-md hover:border-zinc-500 transition-all'):
+                                    with ui.row().classes('w-full items-center justify-between'):
+                                        # Info o pliku
+                                        with ui.row().classes('items-center gap-4'):
+                                            ui.icon('movie', color='orange').classes('text-xl')
+                                            with ui.column().classes('gap-0'):
+                                                ui.label(file_name).classes('text-base font-bold text-zinc-100')
+                                                ui.label(f"{rec['date']} | {rec['size']}").classes('text-[10px] text-zinc-500 uppercase font-mono')
+                                        
+                                        # Przyciski Akcji
+                                        with ui.row().classes('gap-3'):
+                                            # Odtwarzanie - przekazujemy rel_path
+                                            ui.button(icon='play_circle', on_click=lambda p=rel_path: play_recording(p)) \
+                                                .props('flat round color=green size=md').tooltip('Odtwórz')
+                                            
+                                            # Pobieranie - URL uwzględnia strukturę folderów
+                                            ui.button(icon='download', on_click=lambda p=rel_path: ui.download(f"/recordings/{p}")) \
+                                                .props('flat round color=blue size=md').tooltip('Pobierz')
+                                            
+                                            # Usuwanie (tylko dla Admina)
+                                            if role == 'admin':
+                                                ui.button(icon='delete_forever', on_click=lambda p=rel_path: delete_recording(p, username, role)) \
+                                                    .props('flat round color=red-9 size=md').tooltip('Usuń')
 
 # --- 1. POBIERANIE AKTYWNYCH STRUMIENI Z API MEDIAMTX ---
 async def get_active_streams_from_api():
