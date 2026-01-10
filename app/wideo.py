@@ -138,87 +138,83 @@ def archive_interface(username: str, role: str):
 
 # --- 1. POBIERANIE AKTYWNYCH STRUMIENI Z API MEDIAMTX ---
 async def get_active_streams_from_api():
-    """Sprawdza w MediaMTX, które ścieżki faktycznie nadają obraz."""
     try:
-        async with httpx.AsyncClient() as client:
-            # Zakładamy, że API MediaMTX jest na porcie 9997
-            response = await client.get(f"http://api.{DOMAIN}:9997/v3/paths/list")
-            if response.status_code == 200:
-                data = response.json()
-                # Zwracamy listę nazw aktywnych ścieżek, które mają podpięte źródło (source)
-                return [p['name'] for p in data['items'] if p.get('source')]
-    except Exception as e:
-        print(f"Błąd API MediaMTX: {e}")
+        async with httpx.AsyncClient(timeout=2) as client:
+            # Pamiętaj o stream.DOMAIN i porcie API MediaMTX (standardowo 9997)
+            r = await client.get(f"https://api.{DOMAIN}:9997/v3/paths/list")
+            if r.status_code == 200:
+                data = r.json()
+                return [p['name'] for p in data.get('items', []) if p.get('source')]
+    except:
+        return []
     return []
 
-# --- 2. ODŚWIEŻALNA TREŚĆ GRIDU ---
-@ui.refreshable
-async def live_grid_content(username: str, password: str):
-    """Generuje siatkę podglądu na żywo dla konkretnego użytkownika."""
-    active_paths = await get_active_streams_from_api()
-    
+async def live_grid_interface(username, role, password):
+    """Główny interfejs budowany RAZ przy wejściu w zakładkę."""
+    ui.label('PANEL OPERACYJNY - PODGLĄD LIVE').classes('text-3xl font-black mb-6 text-white uppercase')
+
     with SessionLocal() as db:
-        # Pobieramy tylko te strumienie z bazy, do których zalogowany użytkownik ma uprawnienia Widza
         user = db.query(User).filter(User.username == username).first()
-        if not user:
-            ui.label('Błąd autoryzacji użytkownika.').classes('text-red-500')
-            return
+        if not user: return
+        # Pobieramy wszystkie strumienie, do których user ma uprawnienia (nawet te offline)
+        accessible_streams = db.query(StreamPath).join(StreamPath.authorized_viewers).filter(User.id == user.id).all()
 
-        # Pobieramy strumienie, gdzie user jest w authorized_viewers
-        accessible_streams = db.query(StreamPath).join(
-            StreamPath.authorized_viewers
-        ).filter(User.id == user.id).all()
+    # Tworzymy stałą siatkę (2 kolumny)
+    grid = ui.grid(columns=2).classes('w-full gap-8')
 
-    if not accessible_streams:
-        ui.label('Nie masz uprawnień do żadnego aktywnego strumienia.').classes('text-zinc-500 p-8')
-        return
-
-    # SIATKA: 2 KOLUMNY, SKALOWALNA (W-FULL)
-    with ui.grid(columns='1fr 1fr').classes('w-full gap-4 p-2'):
+    with grid:
         for stream in accessible_streams:
-            # Wyświetlamy tylko, jeśli dron faktycznie nadaje (jest w API)
-            is_live = stream.path_name in active_paths
-            
-            with ui.card().classes('bg-zinc-900 border-2 rounded-xl overflow-hidden').style(
-                f'border-color: {"#f97316" if is_live else "#27272a"}'
-            ):
-                # Nagłówek karty z nazwą i statusem
-                with ui.row().classes('w-full justify-between p-2 bg-zinc-950/50'):
-                    ui.label(stream.description or stream.path_name).classes('text-sm font-black text-white uppercase')
-                    ui.badge('LIVE' if is_live else 'OFFLINE', color='orange' if is_live else 'zinc-700')
+            with ui.card().classes('bg-zinc-900 border-2 border-zinc-800 rounded-3xl overflow-hidden shadow-2xl'):
+                # Nagłówek drona
+                with ui.row().classes('w-full justify-between p-4 bg-zinc-950/50'):
+                    ui.label(stream.description or stream.path_name).classes('text-lg font-black text-white uppercase')
+                    # Ten badge będziemy aktualizować dynamicznie
+                    status_badge = ui.badge('OFFLINE', color='zinc-800').props('text-color=zinc-500')
 
-                # ODTWARZACZ HLS Z AUTORYZACJĄ
-                if is_live:
+                # KONTENER NA WIDEO / PLACEHOLDER
+                # To jest klucz: ten kontener będzie czyszczony TYLKO przy zmianie statusu
+                content_slot = ui.column().classes('w-full aspect-video bg-black items-center justify-center')
+                
+                # Przechowujemy referencje do aktualizacji
+                video_containers[stream.id] = {
+                    'slot': content_slot,
+                    'badge': status_badge,
+                    'path': stream.path_name
+                }
+                
+                # Przycisk Fullscreen (zawsze widoczny, działa dynamicznie)
+                with ui.row().classes('w-full justify-end p-2'):
                     hls_url = f"https://stream.{DOMAIN}/{stream.path_name}/index.m3u8?user={username}&password={password}"
-                    video_id = f"video_{stream.id}"
-    
-                    with ui.column().classes('w-full items-center'):
-                        # Używamy ui.video - czysto i profesjonalnie
-                        ui.video(hls_url).classes('w-full aspect-video rounded-xl shadow-lg') \
-                        .props('autoplay muted playsinline loop controls') # controls opcjonalnie
+                    ui.button(icon='fullscreen', on_click=lambda u=hls_url: ui.run_javascript(f'window.open("{u}", "_blank")')) \
+                        .props('flat color=orange size=lg')
+
+    # Timer do inteligentnej aktualizacji statusów (bez przeładowywania całego gridu)
+    async def update_status_loop():
+        active_now = await get_active_streams_from_api()
         
-                        # Przycisk Fullscreen pod wideo
-                        ui.button('PEŁNY EKRAN', icon='fullscreen', 
-                                on_click=lambda url=hls_url: ui.run_javascript(f'window.open("{url}", "_blank")')) \
-                            .props('flat color=orange').classes('text-xs font-bold mt-2')
+        for s_id, data in video_containers.items():
+            is_live = data['path'] in active_now
+            was_live = last_statuses.get(s_id, False)
+
+            if is_live != was_live:
+                # ZMIANA STANU - TYLKO WTEDY REAGUJEMY
+                data['slot'].clear()
+                if is_live:
+                    data['badge'].set_text('LIVE')
+                    data['badge'].props('color=orange text-color=white')
+                    with data['slot']:
+                        hls_url = f"https://stream.{DOMAIN}/{data['path']}/index.m3u8?user={username}&password={password}"
+                        ui.video(hls_url).classes('w-full h-full').props('autoplay muted playsinline loop controls')
                 else:
-                    # Placeholder gdy dron nie nadaje
-                    with ui.column().classes('w-full aspect-video items-center justify-center bg-black/40'):
-                        ui.icon('videocam_off', size='48px').classes('text-zinc-800')
-                        ui.label('Oczekiwanie na sygnał...').classes('text-[10px] text-zinc-700 uppercase')
+                    data['badge'].set_text('OFFLINE')
+                    data['badge'].props('color=zinc-800 text-color=zinc-500')
+                    with data['slot']:
+                        ui.icon('videocam_off', size='64px').classes('text-zinc-800')
+                        ui.label('OCZEKIWANIE NA SYGNAŁ...').classes('text-[10px] text-zinc-700 font-bold mt-2')
+                
+                last_statuses[s_id] = is_live
 
-async def live_grid_interface(username: str, role: str, password: str):
-    """Główny punkt wejścia dla podglądu operacyjnego."""
-    ui.label('Panel Operacyjny - Podgląd na Żywo').classes('text-2xl font-black mb-4 uppercase tracking-tighter')
-    
-    # Przycisk ręcznego odświeżania (jak w porządnym systemie OSP)
-    with ui.row().classes('mb-4 items-center gap-4'):
-        ui.button('ODŚWIEŻ LISTĘ', icon='refresh', on_click=lambda: live_grid_content.refresh(username, password)) \
-            .props('outline color=orange')
-        ui.label('System sprawdza aktywność dronów co 10 sekund').classes('text-[10px] text-zinc-600 italic')
-
-    # Wywołanie odświeżalnej treści
-    await live_grid_content(username, password)
-    
-    # Timer do automatycznego odświeżania (sprawdzanie kto dołączył/odszedł)
-    ui.timer(10.0, lambda: live_grid_content.refresh(username, password))
+    # Uruchamiamy pętlę sprawdzającą co 5 sekund
+    ui.timer(5.0, update_status_loop)
+    # Wywołujemy raz na starcie
+    ui.timer(0.1, update_status_loop, once=True)
