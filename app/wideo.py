@@ -189,22 +189,18 @@ async def live_grid_content(username: str, password: str):
 
                 # ODTWARZACZ HLS Z AUTORYZACJĄ
                 if is_live:
-                    hls_url = f"http://stream.{DOMAIN}:8888/{stream.path_name}/index.m3u8?user={username}&password={password}"
+                    hls_url = f"https://stream.{DOMAIN}/{stream.path_name}/index.m3u8?user={username}&password={password}"
                     video_id = f"video_{stream.id}"
     
-                    # DODAJEMY sanitize=False na końcu
-                    ui.html(f'''
-                    <video id="{video_id}" controls autoplay muted playsinline class="w-full aspect-video bg-black rounded-lg shadow-inner">
-                    <source src="{hls_url}" type="application/x-mpegURL">
-                    Twoja przeglądarka nie obsługuje HLS.
-                    </video>
-                    ''', sanitize=False)
-                    
-                    # STOPKA Z LINKIEM FULLSCREEN
-                    with ui.row().classes('w-full justify-end p-1'):
+                    with ui.column().classes('w-full items-center'):
+                        # Używamy ui.video - czysto i profesjonalnie
+                        ui.video(hls_url).classes('w-full aspect-video rounded-xl shadow-lg') \
+                        .props('autoplay muted playsinline loop controls') # controls opcjonalnie
+        
+                        # Przycisk Fullscreen pod wideo
                         ui.button('PEŁNY EKRAN', icon='fullscreen', 
-                                  on_click=lambda v=video_id: ui.run_javascript(f'document.getElementById("{v}").requestFullscreen()')) \
-                            .props('flat dense color=orange').classes('text-[10px] font-bold')
+                                on_click=lambda url=hls_url: ui.run_javascript(f'window.open("{url}", "_blank")')) \
+                            .props('flat color=orange').classes('text-xs font-bold mt-2')
                 else:
                     # Placeholder gdy dron nie nadaje
                     with ui.column().classes('w-full aspect-video items-center justify-center bg-black/40'):

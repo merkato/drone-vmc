@@ -13,19 +13,29 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-# --- 1. LOGIKA RELACJI (WIDZOWIE / PILOCI) ---
 def toggle_rel(stream_id: int, user_id: int, rel_type: str, state: bool):
     with SessionLocal() as db:
         stream = db.query(StreamPath).filter(StreamPath.id == stream_id).first()
         user = db.query(User).filter(User.id == user_id).first()
+        
         if not stream or not user: return
+        
         target_list = stream.authorized_viewers if rel_type == 'viewer' else stream.authorized_publishers
+        
         if state:
             if user not in target_list: target_list.append(user)
         else:
             if user in target_list: target_list.remove(user)
+            
         db.commit()
-        ui.notify(f"Zaktualizowano: {user.username}")
+        
+        # --- KLUCZ DO NATYCHMIASTOWEJ AKTUALIZACJI ---
+        # 1. Odświeżamy menu checkboxów
+        user_selection_ui.refresh(stream_id)
+        # 2. Odświeżamy całą listę strumieni (żeby linki RTMP/HLS się przeliczyły)
+        streams_management_interface.refresh()
+        
+        ui.notify(f"Zaktualizowano dostęp dla {user.username}", type='positive')
 
 # --- 2. LOGIKA ZARZĄDZANIA STRUMIENIAMI (DODAJ / USUŃ / NAGRYWAJ) ---
 def add_new_stream(path_name, description):
