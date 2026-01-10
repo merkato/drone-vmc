@@ -142,15 +142,19 @@ def archive_interface(username: str, role: str):
 
 # --- 1. POBIERANIE AKTYWNYCH STRUMIENI Z API MEDIAMTX ---
 async def get_active_streams_from_api():
+    """Odpytuje MediaMTX przez sieć wewnętrzną Dockera."""
     try:
         async with httpx.AsyncClient(timeout=2) as client:
-            # Pamiętaj o stream.DOMAIN i porcie API MediaMTX (standardowo 9997)
-            r = await client.get(f"https://api.{DOMAIN}:9997/v3/paths/list")
+            # Używamy nazwy usługi z docker-compose: 'mediamtx'
+            # Jeśli MediaMTX jest w tym samym stacku, to zadziała najlepiej
+            r = await client.get("http://mediamtx:9997/v3/paths/list")
             if r.status_code == 200:
                 data = r.json()
-                return [p['name'] for p in data.get('items', []) if p.get('source')]
-    except:
-        return []
+                active = [p['name'] for p in data.get('items', []) if p.get('source')]
+                logging(f"DEBUG: Aktywne ścieżki z API: {active}") # Odkomentuj do testów
+                return active
+    except Exception as e:
+        print(f"Błąd API MediaMTX: {e}")
     return []
 
 async def live_grid_interface(username, role, password):
@@ -192,32 +196,38 @@ async def live_grid_interface(username, role, password):
                     ui.button(icon='fullscreen', on_click=lambda u=hls_url: ui.run_javascript(f'window.open("{u}", "_blank")')) \
                         .props('flat color=orange size=lg')
 
-    # Timer do inteligentnej aktualizacji statusów (bez przeładowywania całego gridu)
+    # Wewnątrz live_grid_interface:
     async def update_status_loop():
         active_now = await get_active_streams_from_api()
-        
+    
         for s_id, data in video_containers.items():
+            # Sprawdzamy czy ścieżka z bazy (np. istebna/mini) jest w liście z API
             is_live = data['path'] in active_now
             was_live = last_statuses.get(s_id, False)
 
+            # Reagujemy tylko przy ZMIANIE statusu
             if is_live != was_live:
-                # ZMIANA STANU - TYLKO WTEDY REAGUJEMY
                 data['slot'].clear()
-                if is_live:
-                    data['badge'].set_text('LIVE')
-                    data['badge'].props('color=orange text-color=white')
-                    with data['slot']:
+                with data['slot']:
+                    if is_live:
+                        data['badge'].set_text('LIVE')
+                        data['badge'].props('color=orange text-color=white')
+                    
+                        # KLUCZ: Link HTTPS przez Caddy (bez portu 8888!)
                         hls_url = f"https://stream.{DOMAIN}/{data['path']}/index.m3u8?user={username}&password={password}"
-                        ui.video(hls_url).classes('w-full h-full').props('autoplay muted playsinline loop controls')
-                else:
-                    data['badge'].set_text('OFFLINE')
-                    data['badge'].props('color=zinc-800 text-color=zinc-500')
-                    with data['slot']:
-                        ui.icon('videocam_off', size='64px').classes('text-zinc-800')
-                        ui.label('OCZEKIWANIE NA SYGNAŁ...').classes('text-[10px] text-zinc-700 font-bold mt-2')
-                
+                    
+                         # Używamy ui.video z odpowiednimi propsami
+                        ui.video(hls_url).classes('w-full h-full rounded-2xl') \
+                            .props('autoplay muted playsinline loop controls')
+                    else:
+                        data['badge'].set_text('OFFLINE')
+                        data['badge'].props('color=zinc-800 text-color=zinc-500')
+                        with ui.column().classes('w-full h-full items-center justify-center'):
+                            ui.icon('videocam_off', size='64px').classes('text-zinc-800')
+                            ui.label('OCZEKIWANIE NA SYGNAŁ...').classes('text-[10px] text-zinc-700 font-bold mt-2')
+            
                 last_statuses[s_id] = is_live
-
+    
     # Uruchamiamy pętlę sprawdzającą co 5 sekund
     ui.timer(5.0, update_status_loop)
     # Wywołujemy raz na starcie
