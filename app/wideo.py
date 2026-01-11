@@ -146,10 +146,10 @@ async def get_active_streams_from_api():
             if r.status_code == 200:
                 data = r.json()
                 active = [p['name'] for p in data.get('items', []) if p.get('source')]
-                logging(f"DEBUG: Aktywne ścieżki z API: {active}") # Odkomentuj do testów
+                logging.info(f"DEBUG: Aktywne ścieżki z API: {active}") # Odkomentuj do testów
                 return active
     except Exception as e:
-        logging(f"Błąd API MediaMTX: {e}")
+        logging.error(f"Błąd API MediaMTX: {e}")
     return []
 
 # Słowniki do trzymania referencji (poza funkcją)
