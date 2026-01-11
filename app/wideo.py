@@ -226,16 +226,7 @@ async def live_grid_interface(username: str, role: str, password: str):
     # Przycisk "Twardego" odświeżenia
     ui.button('ZRESETUJ WIDOK', icon='refresh', on_click=lambda: ui.navigate.to('/')) \
         .props('outline color=orange').classes('mb-4')
-    # DEBUG statusów:
-    ui.label('Diagnostyka API:').classes('text-zinc-700 text-[10px]')
-    debug_label = ui.label('Sprawdzam...').classes('text-orange-500 font-mono text-[10px] mb-4')
 
-    async def update_debug():
-        paths = await get_active_streams_from_api()
-        debug_label.set_text(f"Aktywne ścieżki w API: {', '.join(paths) if paths else 'BRAK DANYCH'}")
-
-    ui.timer(2.0, update_debug)
-    
     # Budujemy grid raz
     await live_grid_content(username, password)
     
