@@ -136,13 +136,12 @@ def archive_interface(username: str, role: str):
                                         ui.button(icon='download', on_click=lambda r=rec: ui.download(f"/recordings/{r['relative_path']}")) \
                                             .props('flat dense size=sm color=blue')
 
-# --- 1. POBIERANIE AKTYWNYCH STRUMIENI Z API MEDIAMTX ---
+# --- POBIERANIE AKTYWNYCH STRUMIENI Z API MEDIAMTX ---
 async def get_active_streams_from_api():
     """Odpytuje MediaMTX przez sieć wewnętrzną Dockera."""
     try:
         async with httpx.AsyncClient(timeout=2) as client:
             # Używamy nazwy usługi z docker-compose: 'mediamtx'
-            # Jeśli MediaMTX jest w tym samym stacku, to zadziała najlepiej
             r = await client.get("http://mediamtx:9997/v3/paths/list")
             if r.status_code == 200:
                 data = r.json()
@@ -150,7 +149,7 @@ async def get_active_streams_from_api():
                 logging(f"DEBUG: Aktywne ścieżki z API: {active}") # Odkomentuj do testów
                 return active
     except Exception as e:
-        print(f"Błąd API MediaMTX: {e}")
+        logging(f"Błąd API MediaMTX: {e}")
     return []
 
 # Słowniki do trzymania referencji (poza funkcją)
@@ -224,10 +223,19 @@ def update_card_content(stream_id, is_live, username, password):
 async def live_grid_interface(username: str, role: str, password: str):
     ui.label('Panel Operacyjny - Podgląd na Żywo').classes('text-2xl font-black mb-4 uppercase tracking-tighter')
     
-    # Przycisk "Twardego" odświeżenia (buduje wszystko od nowa w razie W)
+    # Przycisk "Twardego" odświeżenia
     ui.button('ZRESETUJ WIDOK', icon='refresh', on_click=lambda: ui.navigate.to('/')) \
         .props('outline color=orange').classes('mb-4')
+    # DEBUG statusów:
+    ui.label('Diagnostyka API:').classes('text-zinc-700 text-[10px]')
+    debug_label = ui.label('Sprawdzam...').classes('text-orange-500 font-mono text-[10px] mb-4')
 
+    async def update_debug():
+        paths = await get_active_streams_from_api()
+        debug_label.set_text(f"Aktywne ścieżki w API: {', '.join(paths) if paths else 'BRAK DANYCH'}")
+
+    ui.timer(2.0, update_debug)
+    
     # Budujemy grid raz
     await live_grid_content(username, password)
     
